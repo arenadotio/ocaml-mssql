@@ -1,9 +1,25 @@
 open Core
 open Async
-
-open Pgd_ounit
+open OUnit2
 
 module Row = Mssql.Row
+
+let ae_sexp ?cmp ?pp_diff ?msg sexp a a' =
+  let cmp = Option.value cmp ~default:(fun a b -> sexp a = sexp b) in
+  assert_equal ~cmp ?pp_diff ?msg
+    ~printer:(fun x -> x |> sexp |> Sexp.to_string_hum) a a'
+
+let async_test' timeout f =
+  Thread_safe.block_on_async_exn @@ fun () ->
+  Clock.with_timeout timeout (f ())
+  >>| function
+  | `Result x -> x
+  | `Timeout ->
+    failwithf "Test exceeded timeout of %f seconds"
+      (Time.Span.to_sec timeout) ()
+
+let async_test f =
+  async_test' (Time.Span.of_sec 10.) f
 
 let test_select_and_convert () =
   Mssql.Test.with_conn (fun db ->
@@ -525,7 +541,9 @@ let () =
   ; "test other execute during transaction", test_other_execute_during_transaction
   ; "test prevent transaction deadlock", test_prevent_transaction_deadlock ]
   @ round_trip_tests
-  |> Async_ounit.make_tests "MSSQL"
-  >>= Async_ounit.run_async_tests_shutdown
-  |> don't_wait_for;
-  never_returns (Scheduler.go ())
+  |> List.map ~f:(fun (name, f) ->
+    name >:: (fun _ ->
+      async_test @@ fun () ->
+      f ()))
+  |> test_list
+  |> run_test_tt_main
