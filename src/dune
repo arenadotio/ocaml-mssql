@@ -1,0 +1,7 @@
+(library
+ (name mssql)
+ (libraries core async freetds bignum oUnit text)
+ (preprocess (pps ppx_jane bisect_ppx -conditional)))
+
+(ocamllex query_lexer)
+(ocamlyacc query_parser)

@@ -1,0 +1,5 @@
+(executables
+ (names test_mssql)
+ (public_names test/test_mssql.opt)
+ (libraries mssql async_ounit pgd_ounit)
+ (preprocess (pps ppx_jane)))
