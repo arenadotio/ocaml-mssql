@@ -1,5 +1,5 @@
 (library
- (name mssql)
+ (public_name mssql)
  (libraries core async freetds bignum oUnit text)
  (preprocess (pps ppx_jane bisect_ppx -conditional)))
 

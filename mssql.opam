@@ -1,0 +1,22 @@
+opam-version: "1.2"
+authors: ["Arena Developers <silver-snakes@arena.io>"]
+maintainer: "silver-snakes@arena.io"
+homepage: "https://github.com/arenadotio/ocaml-mssql"
+dev-repo: "https://github.com/arenadotio/ocaml-mssql.git"
+bug-reports: "https://github.com/arenadotio/ocaml-mssql/issues"
+doc: "https://arenadotio.github.io/ocaml-mssql/doc"
+
+build: ["jbuilder" "build" "-p" name "-j" jobs]
+build-test: ["jbuilder" "runtest" "-p" name "-j" jobs]
+
+depends: [
+  "ppx_jane"
+  "freetds"
+  "ounit"
+  "text"
+
+  "bisect_ppx" {build & >= "1.3.1"}
+  "dune" {build & >= "1.4"}
+]
+
+available: [ocaml-version >= "4.06.1"]
