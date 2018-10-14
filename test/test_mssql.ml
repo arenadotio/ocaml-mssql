@@ -318,11 +318,11 @@ let round_trip_tests =
        Row.int64 row ""
        |> ae_sexp [%sexp_of: int64 option]
             (Some Int64.(max_value / of_int 1000000)))
-  ; Date (Time.of_string "2017-01-05 11:53:02"), "DATETIME",
+  ; Date (Time.of_string "2017-01-05 11:53:02Z"), "DATETIME",
     (fun row ->
        Row.datetime row ""
        |> ae_sexp [%sexp_of: Time.t option]
-            (Some (Time.of_string "2017-01-05 11:53:02"))) ]
+            (Some (Time.of_string "2017-01-05 11:53:02Z"))) ]
   @
   ([ all_chars
    (* try null, ' and a string in any order to make sure the iterative code
