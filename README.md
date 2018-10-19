@@ -1,4 +1,5 @@
 [![CircleCI](https://circleci.com/gh/arenadotio/ocaml-mssql.svg?style=shield)](https://circleci.com/gh/arenadotio/ocaml-mssql)
+[![Coverage Status](https://coveralls.io/repos/github/arenadotio/ocaml-mssql/badge.svg?branch=master)](https://coveralls.io/github/arenadotio/ocaml-mssql?branch=master)
 
 **Mssql** is an [Async](https://github.com/janestreet/async) OCaml SQL Server
 library, currently using [FreeTDS](https://github.com/kennknowles/ocaml-freetds).
