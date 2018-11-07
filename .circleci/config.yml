@@ -17,7 +17,9 @@ jobs:
     steps:
       - run:
           name: Install apt deps
-          command: sudo apt-get install -y tzdata
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y tzdata
       - checkout
       - run:
           name: Update opam
