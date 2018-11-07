@@ -14,7 +14,7 @@ type t =
   | Date of Time.t
 [@@deriving sexp]
 
-val of_data : month_offset:int -> Dblib.data -> t option
+val of_data : month_offset:int -> Ct.sql_t -> t option
 
 val to_string : t option -> string
 val to_string_escaped : t option -> string

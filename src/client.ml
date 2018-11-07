@@ -6,13 +6,15 @@ type t =
   (* dbprocess will be set to None when closed to prevent null pointer crashes *)
   (* The sequencer prevents concurrent use of the DB connection, and also
      prevent queries during unrelated transactions. *)
-  { mutable conn : Dblib.dbprocess Sequencer.t option
+  { mutable conn : Ct.connection Sequencer.t option
   (* ID used to detect deadlocks when attempting to use an outer DB handle
      inside of with_transaction *)
   ; transaction_id : Bigint.t
   (* Months are sometimes 0-based and sometimes 1-based. See:
      http://www.pymssql.org/en/stable/freetds_and_dates.html *)
   ; month_offset : int }
+
+let context = lazy (Ct.ctx_create ())
 
 let thread = lazy (In_thread.Helper_thread.create ~name:"mssql" ())
 
@@ -46,33 +48,55 @@ let sequencer_enqueue t f =
 
 let run_query ~month_offset t query =
   Logger.debug !"Executing query: %s" query;
-  let colnames t =
-    Dblib.numcols t
-    |> List.range 0
-    |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
-  in
-  Dblib.canquery t;
-  Dblib.sqlexec t query;
-  let rec result_set_loop result_sets =
-    match Dblib.results t with
-    | true ->
-      let colnames = colnames t in
-      let rec loop rows colnames =
-        Result.try_with (fun () -> Dblib.nextrow t)
-        |> function
-        | Ok row ->
-          let row = Row.create_exn ~month_offset row colnames in
-          loop (row :: rows) colnames
-        | Error Caml.Not_found ->
-          List.rev rows :: result_sets
-          |> result_set_loop
-        | Error e -> raise e
-      in
-      loop [] colnames
-    | false -> result_sets
-  in
-  result_set_loop []
-  |> List.rev
+  Or_error.try_with (fun () ->
+    let cols cmd =
+      Ct.res_info cmd `Numdata
+      |> List.range 0
+      |> List.map ~f:(fun i ->
+        Ct.bind cmd (i + 1))
+    in
+    let cmd = Ct.cmd_alloc t in
+    Ct.command cmd `Lang query;
+    Ct.send cmd;
+    let rec result_set_loop result_sets =
+      match Ct.results cmd with
+      | `Row ->
+        let cols = cols cmd in
+        let colnames = List.map cols ~f:(fun col -> col.col_name) in
+        let rec loop rows =
+          match Ct.fetch cmd with
+          | 1 ->
+            let row = List.map cols ~f:(fun col ->
+              col.col_buffer
+              |> Ct.buffer_contents)
+            in
+            let row = Row.create_exn ~month_offset row colnames in
+            loop (row :: rows)
+          | exception Ct.End_data ->
+            List.rev rows :: result_sets
+            |> result_set_loop
+          | n ->
+            failwithf "Expected fetch to return 1 row but got %d rows" n ()
+        in
+        loop []
+      | _ -> result_set_loop result_sets
+      | exception Ct.End_results -> result_sets
+    in
+    result_set_loop []
+    |> List.rev)
+  |> function
+  | Ok res -> res
+  | Error err ->
+    let messages =
+      Ct.get_messages ~client:true ~server:true t
+      |> List.filter_map ~f:(fun (severity, msg) ->
+        match severity with
+        | Ct.Inform -> None
+        | _ -> Some msg)
+      |> String.concat ~sep:"\n"
+    in
+    Error.tag err ~tag:messages
+    |> Error.raise
 
 let format_query query params =
   let params =
@@ -200,38 +224,23 @@ let with_transaction_or_error t f =
     Monitor.try_with_join_or_error (fun () ->
       f t))
 
-let ignore_conversion_err_handler severity _err msg =
-  match severity with
-  | Dblib.CONVERSION ->
-    Logger.info "Ignoring conversion error: %s" msg;
-  | _ -> raise (Dblib.Error(severity, msg))
-
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
-  match
-    let conn =
-      Dblib.connect
-        ~user ~password
-        (* We have issues with anything higher than this *)
-        ~version:Dblib.V70
-        (* Clifford gives FreeTDS conversion errors if we choose anything else,
-           eg:
-           ("Error(CONVERSION, \"Some character(s) could not be converted into
-           client's character set.  Unconverted bytes were changed to question
-           marks ('?')\")") *)
-        ~charset:"CP1252"
-        host
-    in
-    Dblib.use conn db;
-    Dblib.err_handler ignore_conversion_err_handler;
+  let conn = Ct.con_alloc (Lazy.force context) in
+  try
+    Ct.con_setstring conn `Username user;
+    Ct.con_setstring conn `Password password;
+    Ct.connect conn host;
     conn
-  with
-  | exception exn ->
-    if tries = 0
-    then
+  with exn ->
+    begin try
+      Ct.close ~force:true conn;
+    with _ ->
+      ()
+    end;
+    if tries = 0 then
       raise exn
     else
       connect ~tries:(tries-1) ~host ~db ~user ~password ()
-  | conn -> conn
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
@@ -239,13 +248,17 @@ let rec connect ?(tries=5) ~host ~db ~user ~password () =
    options are correct for use with indexed views and/or indexes on computed
    columns and/or filtered indexes and/or query notifications and/or XML data
    type methods and/or spatial index operations.*)
-let init_conn c =
-  execute_multi_result c
+let init_conn ~db c =
+  if String.contains db ']' then
+    failwithf "Invalid DB name %s" db ();
+  sprintf
     "SET QUOTED_IDENTIFIER ON
      SET ANSI_NULLS ON
      SET ANSI_WARNINGS ON
      SET ANSI_PADDING ON
-     SET CONCAT_NULL_YIELDS_NULL ON"
+     SET CONCAT_NULL_YIELDS_NULL ON
+     USE [%s]" db
+  |> execute_multi_result c
   |> Deferred.ignore
 
 let close ({ conn } as t) =
@@ -255,7 +268,7 @@ let close ({ conn } as t) =
   | Some conn ->
     t.conn <- None;
     Throttle.enqueue conn @@ fun conn ->
-    in_thread (fun () -> Dblib.close conn)
+    in_thread (fun () -> Ct.close conn)
 
 let create ~host ~db ~user ~password () =
   let%bind conn =
@@ -284,10 +297,11 @@ let create ~host ~db ~user ~password () =
         | _ -> assert false
       in
       let conn = { conn with month_offset } in
-      init_conn conn
+      init_conn conn ~db
       >>| fun () ->
       conn
-    | _ -> assert false
+    | rows ->
+      failwithf !"Date workaround expected one row but got %{sexp: Row.t list}" rows ()
   end
   >>= function
   | Ok res -> return res

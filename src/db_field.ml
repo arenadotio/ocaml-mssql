@@ -29,33 +29,77 @@ let recode str =
       exn str;
     String.filter str ~f:(fun c -> Char.to_int c < 128)
 
-let of_data ~month_offset data =
+let date_of_string s =
+  try
+    Date.of_string s
+  with Invalid_argument _ ->
+    String.split ~on:' ' s
+    |> List.filter ~f:(Fn.non String.is_empty)
+    |> function
+    | [ month ; day ; year ] ->
+      let month = Month.of_string month
+      and day = Int.of_string day
+      and year = Int.of_string year in
+      Date.create_exn ~y:year ~m:month ~d:day
+    | _ ->
+      failwithf "Failed to parse date %s" s ()
+
+let datetime_of_string s =
+  (* dates look like "Feb  2 2017 12:00:00:000AM" *)
+  String.rsplit2 s ~on:' '
+  |> function
+  | Some (datepart, timepart) ->
+    let date = date_of_string datepart in
+    let fail = failwithf "Failed to parse time %s" timepart in
+    let am_pm =
+      if String.is_suffix s ~suffix:"AM" then `AM
+      else if String.is_suffix s ~suffix:"PM" then `PM
+      else fail ()
+    in
+    let hour, minute, second, millisecond =
+      String.drop_suffix timepart 2
+      |> String.split ~on:':'
+      |> List.map ~f:Int.of_string
+      |> function
+      | [ hour ; minute ] ->
+        hour, minute, 0, 0
+      | [ hour ; minute ; second ] ->
+        hour, minute, second, 0
+      | [ hour ; minute ; second ; millisecond ] ->
+        hour, minute, second, millisecond
+      | _ -> fail ()
+    in
+    let hour =
+      match hour, am_pm with
+      | 12, `PM -> 12
+      | 12, `AM -> 0
+      | h, `PM -> h + 12
+      | h, `AM -> h
+    in
+    let time = Time.Ofday.create ~hr:hour ~min:minute ~sec:second
+                 ~ms:millisecond () in
+    Time.of_date_ofday ~zone:Time.Zone.utc date time
+  | _ ->
+    failwithf "Failed to parse datetime %s" s ()
+
+let of_data ~(month_offset:int) (data:Ct.sql_t) =
+  ignore month_offset;
   match data with
-  | Dblib.BIT b -> Some (Bool b)
-  | INT i
-  | SMALL i
-  | TINY i -> Some (Int i)
-  | INT32 i -> Some (Int32 i)
-  | INT64 i -> Some (Int64 i)
-  | FLOAT f
-  | MONEY f -> Some (Float f)
-  | DECIMAL s
-  | NUMERIC s ->
+  | `Bit b -> Some (Bool b)
+  | `Int i -> Some (Int32 i)
+  | `Smallint i
+  | `Tinyint i -> Some (Int i)
+  | `Float f -> Some (Float f)
+  | `Decimal s ->
     Some (Bignum (Bignum.of_string s))
-  | BINARY s -> Some (String s)
-  | STRING s ->
+  | `Binary s -> Some (String s)
+  | `Text s
+  | `String s ->
     Some (String (recode s))
-  | DATETIME (y, mo, day, hr, min, sec, ms, _zone) ->
-    (* FIXME: Timezones don't match in FreeTDS 0.91 and 1.0, so for now we
-       just assume everything in UTC. *)
-    let mo = mo + month_offset in
-    let date =
-      Date.create_exn ~y ~m:(Month.of_int_exn mo) ~d:day in
-    let time = Time.Ofday.create ~hr ~min ~sec ~ms ~us:0 () in
-    let datetime = Time.of_date_ofday date time
-                     ~zone:Time.Zone.utc in
-    Some (Date datetime)
-  | NULL -> None
+  | `Datetime s ->
+    let d = datetime_of_string s in
+    Some (Date d)
+  | `Null -> None
 
 let to_string ~quote_string =
   function
@@ -217,11 +261,19 @@ let str ?column =
 let date ?column =
   with_error_msg ?column "date" ~f:(function
     | Date d -> Date.of_time ~zone:Time.Zone.utc d
-    | String s -> Date.of_string s
+    | String s ->
+      (* For datetimes, return the date part, for just dates parse it alone *)
+      begin try
+        datetime_of_string s
+        |> Time.to_date ~zone:Time.Zone.utc
+      with Failure _ ->
+        date_of_string s
+      end
     | _ -> assert false)
 
 let datetime ?column =
   with_error_msg ?column "datetime" ~f:(function
     | Date d -> d
-    | String s -> Time.of_string_abs s
+    | String s ->
+      datetime_of_string s
     | _ -> assert false)

@@ -13,10 +13,10 @@ coverage: clean
 	  `find . -name 'bisect*.out'`
 
 pin:
-	# FreeTDS upstream holds the global OCaml lock; this branch fixes that
-	# Remove when this pull request is merged: https://github.com/kennknowles/ocaml-freetds/pull/29
+	# Various fixes to the ctlib bindings, and also release the runtime lock
+	# See https://github.com/kennknowles/ocaml-freetds/pull/30
 	opam pin add -yn freetds -k git \
-		https://github.com/arenadotio/ocaml-freetds\#release-lock-during-io
+		https://github.com/arenadotio/ocaml-freetds\#ctlib-release-runtime-lock
 	opam pin add -yn mssql .
 
 test:

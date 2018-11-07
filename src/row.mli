@@ -5,7 +5,7 @@ open Freetds
 
 type t [@@deriving sexp_of]
 
-val create_exn : month_offset:int -> Dblib.data list -> string list -> t
+val create_exn : month_offset:int -> Ct.sql_t list -> string list -> t
 
 (** [to_alist t] converts t to a list of (colname, value) pairs *)
 val to_alist : t -> (string * string) list
