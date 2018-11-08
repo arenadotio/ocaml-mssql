@@ -16,12 +16,6 @@ type t =
 
 let context = lazy (Ct.ctx_create ())
 
-let thread = lazy (In_thread.Helper_thread.create ~name:"mssql" ())
-
-let in_thread f =
-  let%bind thread = Lazy.force thread in
-  In_thread.run ~thread f
-
 let next_transaction_id =
   let next = ref Bigint.zero in
   fun () ->
@@ -126,7 +120,7 @@ let format_query query params =
 
 let execute' ({ month_offset } as t) query =
   sequencer_enqueue t @@ fun conn ->
-  in_thread (fun () ->
+  In_thread.run (fun () ->
     run_query ~month_offset conn query)
 
 let with_query_in_exn query formatted_query f =
@@ -268,12 +262,12 @@ let close ({ conn } as t) =
   | Some conn ->
     t.conn <- None;
     Throttle.enqueue conn @@ fun conn ->
-    in_thread (fun () -> Ct.close conn)
+    In_thread.run (fun () -> Ct.close conn)
 
 let create ~host ~db ~user ~password () =
   let%bind conn =
     let%map conn =
-      in_thread (connect ~host ~db ~user ~password)
+      In_thread.run (connect ~host ~db ~user ~password)
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn
