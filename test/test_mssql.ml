@@ -551,6 +551,26 @@ let test_prevent_transaction_deadlock () =
                         expect (Error.to_string_mach err))
     | _ -> assert false)
 
+let test_concurrent_queries_actually_concurrent () =
+  let n = 5
+  and start = Time.now () in
+  Mssql.Test.with_pool ~max_connections:n (fun pool ->
+    List.init n ~f:(Fn.const ())
+    |> Deferred.List.iter ~how:`Parallel ~f:(fun () ->
+      Mssql.Pool.with_conn pool (fun db ->
+        (* wait for one second *)
+        Mssql.execute_unit db "WAITFOR DELAY '00:00:01'")))
+  >>| fun () ->
+  let end_ = Time.now () in
+  let diff =
+    Time.diff end_ start
+    |> Time.Span.to_sec
+  in
+  (* since we ran the queries in parallel, we should take less than 10 seconds
+     to finish *)
+  Float.(diff < of_int n)
+  |> assert_bool (sprintf "Expected concurrent queries to take less than %d seconds but took %f seconds" n diff)
+
 let () =
   [ "select and convert", test_select_and_convert
   ; "multiple queries in execute", test_multiple_queries_in_execute
@@ -572,7 +592,9 @@ let () =
   ; "test auto commit", test_auto_commit
   ; "test pool auto rollback", test_pool_auto_rollback
   ; "test other execute during transaction", test_other_execute_during_transaction
-  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock ]
+  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+  ; "concurrent queries actually concurrent",
+    test_concurrent_queries_actually_concurrent ]
   @ round_trip_tests
   @ recoding_tests
   |> List.map ~f:(fun (name, f) ->
