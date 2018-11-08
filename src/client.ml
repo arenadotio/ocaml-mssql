@@ -105,14 +105,15 @@ let execute' ({ month_offset } as t) query =
   in_thread (fun () ->
     run_query ~month_offset conn query)
 
-let with_query_in_exn query f =
+let with_query_in_exn query formatted_query f =
   let%map oe = Monitor.try_with_or_error f in
-  Or_error.tag oe ~tag:(sprintf "Query was %s" query)
+  Or_error.tag oe ~tag:(sprintf "Formatted query was %s" formatted_query)
+  |> Or_error.tag ~tag:(sprintf "Query was %s" query)
   |> Or_error.ok_exn
 
 let execute_multi_result ?(params=[]) conn query =
   let formatted_query = format_query query params in
-  with_query_in_exn query @@ fun () ->
+  with_query_in_exn query formatted_query @@ fun () ->
   execute' conn formatted_query
 
 let execute ?params conn query =
@@ -147,7 +148,7 @@ let execute_many ~params conn query =
     List.map params ~f:(format_query query)
     |> String.concat ~sep:";"
   in
-  with_query_in_exn query @@ fun () ->
+  with_query_in_exn query formatted_query @@ fun () ->
   execute' conn formatted_query
 
 let begin_transaction conn =
