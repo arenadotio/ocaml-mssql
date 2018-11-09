@@ -41,7 +41,6 @@ let sequencer_enqueue t f =
       Throttle.enqueue conn f
 
 let run_query ~month_offset t query =
-  Logger.debug !"Executing query: %s" query;
   Or_error.try_with (fun () ->
     let cols cmd =
       Ct.res_info cmd `Numdata
@@ -120,6 +119,7 @@ let format_query query params =
 
 let execute' ({ month_offset } as t) query =
   sequencer_enqueue t @@ fun conn ->
+  Logger.debug !"Executing query: %s" query;
   In_thread.run (fun () ->
     run_query ~month_offset conn query)
 
