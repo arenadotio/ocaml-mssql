@@ -400,15 +400,39 @@ let test_connection_pool_concurrency () =
           Row.int row "")
         >>| ae_sexp [%sexp_of: int option list] expect)))
 
-let test_recoding () =
-  let str = "ç ß ∑ We’re testing iconv here" in
-  (* The ∑ has no conversion so it converts to ? *)
-  let expect = Some [ "res", "ç ß ? We’re testing iconv here" ] in
-  let params = [ Some (Mssql.Param.String str) ] in
-  Mssql.Test.with_conn @@ fun db ->
-  Mssql.execute_single ~params db "SELECT $1 AS res"
-  >>| Option.map ~f:Mssql.Row.to_alist
-  >>| ae_sexp [%sexp_of: (string * string) list option] expect
+let recoding_tests =
+  (* ç ß are different in CP1252 vs UTF-8; ∑ has no conversion *)
+  [ "valid UTF-8",
+    "ç ß ∑ We’re testing iconv here",
+    (* round trip strips ∑ because we can't store it, but handles the rest *)
+    "ç ß ? We’re testing iconv here",
+    (* Inserting the literal char codes, we'll double-decode when we pull it
+       back out of the DB (garbage output is by design here) *)
+    "Ã§ ÃŸ âˆ‘ Weâ€™re testing iconv here"
+  ; "invalid UTF-8",
+    (* \x81 isn't valid in UTF-8 or CP1252 so both versions fallback to just
+       using the ASCII chars *)
+    "ç ß ∑ We’re testing iconv here \x81",
+    "   Were testing iconv here ",
+    "   Were testing iconv here " ]
+  |> List.concat_map ~f:(fun (name, input, expect_roundtrip, expect_charcodes) ->
+    [ "recoding, round-trip " ^ name, (fun () ->
+        let params = [ Some (Mssql.Param.String input) ] in
+        Mssql.Test.with_conn @@ fun db ->
+        Mssql.execute_single ~params db "SELECT $1"
+        >>| Option.map ~f:Row.to_alist
+        >>| ae_sexp [%sexp_of: (string * string) list option] (Some [ "", expect_roundtrip ]))
+    ; "recoding, sending literal char codes " ^ name, (fun () ->
+        Mssql.Test.with_conn @@ fun db ->
+        String.to_list input
+        |> List.map ~f:Char.to_int
+        |> List.map ~f:(sprintf "CHAR(%d)")
+        |> String.concat ~sep:"+"
+        |> sprintf "SELECT %s"
+        |> Mssql.execute_single db
+        >>| Option.map ~f:Row.to_alist
+        >>| ae_sexp [%sexp_of: (string * string) list option] (Some [ "", expect_charcodes ]))
+    ])
 
 let test_rollback () =
   let expect = [ [ "id", "1" ] ] in
@@ -552,7 +576,6 @@ let () =
   ; "test execute many", test_execute_many
   ; "test concurrent queries", test_concurrent_queries
   ; "test connection pool concurrency", test_connection_pool_concurrency
-  ; "test recoding", test_recoding
   ; "test rollback", test_rollback
   ; "test auto rollback", test_auto_rollback
   ; "test commit", test_commit
@@ -563,6 +586,7 @@ let () =
   ; "concurrent queries actually concurrent",
     test_concurrent_queries_actually_concurrent ]
   @ round_trip_tests
+  @ recoding_tests
   |> List.map ~f:(fun (name, f) ->
     name >:: (fun _ ->
       try
