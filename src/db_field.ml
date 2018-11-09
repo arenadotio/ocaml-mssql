@@ -12,7 +12,7 @@ type t =
   | Date of Time.t
 [@@deriving sexp]
 
-let recode str =
+let recode ~src ~dst str =
   (* Need to convert from CP1252 since SQL Server can't handle UTF-8 in any
      reasonable way.
      Note that //TRANSLIT means we will try to convert between similar
@@ -23,7 +23,8 @@ let recode str =
      doesn't fix either, so in that case we'll log the offending string and do a
      simple ascii filter. *)
   try
-    Encoding.recode_string ~src:"CP1252" ~dst:"UTF-8//TRANSLIT" str
+    let dst = sprintf "%s//TRANSLIT" dst in
+    Encoding.recode_string ~src ~dst str
   with exn ->
     Logger.info !"Recoding error, falling back to ascii filter %{sexp: exn} %s"
       exn str;
@@ -44,7 +45,7 @@ let of_data ~month_offset data =
     Some (Bignum (Bignum.of_string s))
   | BINARY s -> Some (String s)
   | STRING s ->
-    Some (String (recode s))
+    Some (String (recode ~src:"CP1252" ~dst:"UTF-8" s))
   | DATETIME (y, mo, day, hr, min, sec, ms, _zone) ->
     (* FIXME: Timezones don't match in FreeTDS 0.91 and 1.0, so for now we
        just assume everything in UTC. *)
@@ -81,11 +82,8 @@ let to_string_escaped =
      'a'+'s'+'d'+'f'). *)
   let quote_string s =
     (* Need to convert to CP1252 since SQL Server can't handle UTF-8 in any
-       reasonable way.
-       Note that //TRANSLIT means we will try to convert between similar
-       characters in the two encodings and use ? if necessary instead of
-       erroring out. *)
-    let s = Text.encode ~encoding:"CP1252//TRANSLIT" s in
+       reasonable way. *)
+    let s = recode ~src:"UTF-8" ~dst:"CP1252" s in
     (* len * 2 will always hold the resulting string unless it has null
        chars, so this should make the standard case fast without wasting much
        memory. *)
