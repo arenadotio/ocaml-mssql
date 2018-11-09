@@ -60,4 +60,6 @@ jobs:
           command: |
             cd _build/default
             shopt -s globstar
-            opam config exec -- ocveralls **/bisect*.out --send --repo_token $COVERALLS_REPO_TOKEN --git
+            if [[ -n "$COVERALLS_REPO_TOKEN" ]]; then
+              opam config exec -- ocveralls **/bisect*.out --send --repo_token $COVERALLS_REPO_TOKEN --git
+            fi
