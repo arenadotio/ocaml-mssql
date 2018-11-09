@@ -9,8 +9,18 @@ let ae_sexp ?cmp ?pp_diff ?msg sexp a a' =
   assert_equal ~cmp ?pp_diff ?msg
     ~printer:(fun x -> x |> sexp |> Sexp.to_string_hum) a a'
 
-let async_test' timeout f =
+let async_test' ctx timeout f =
   Thread_safe.block_on_async_exn @@ fun () ->
+  [ Log.Output.create ~flush:(Fn.const Deferred.unit) (fun msgs ->
+      Queue.iter msgs ~f:(fun msg ->
+        let level : OUnit2.log_severity =
+          match Log.Message.level msg with
+          | None | Some `Debug | Some `Info -> `Info
+          | Some `Error -> `Error
+        in
+        OUnit2.logf ctx level "%s" (Log.Message.message msg));
+      Deferred.unit) ]
+  |> Log.Global.set_output;
   Clock.with_timeout timeout (f ())
   >>| function
   | `Result x -> x
@@ -18,8 +28,8 @@ let async_test' timeout f =
     failwithf "Test exceeded timeout of %f seconds"
       (Time.Span.to_sec timeout) ()
 
-let async_test f =
-  async_test' (Time.Span.of_sec 10.) f
+let async_test ctx f =
+  async_test' ctx (Time.Span.of_sec 10.) f
 
 let test_select_and_convert () =
   Mssql.Test.with_conn (fun db ->
@@ -566,9 +576,9 @@ let () =
   @ round_trip_tests
   @ recoding_tests
   |> List.map ~f:(fun (name, f) ->
-    name >:: (fun _ ->
+    name >:: (fun ctx ->
       try
-        async_test @@ fun () ->
+        async_test ctx @@ fun () ->
         f ()
       with exn ->
         Monitor.extract_exn exn
