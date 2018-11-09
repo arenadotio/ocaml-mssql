@@ -40,6 +40,34 @@ let sequencer_enqueue t f =
     | _ ->
       Throttle.enqueue conn f
 
+(* Must be run inside the sequencer. This function is weird because we have to
+   get messages in the background thread, but we have to log in the main
+   thread.
+   If the function succeeds, log any messages.
+   If the function fails, log info messages and include any errors in
+   the exception *)
+let with_messages conn f =
+  Monitor.try_with (fun () ->
+    let%map res = f () in
+    Ct.get_messages ~client:true ~server:true conn
+    |> List.iter ~f:(fun (severity, message) ->
+      match severity with
+      | Ct.Inform -> Logger.info "%s" message
+      | _ -> Logger.error "%s" message);
+    res)
+  >>= function
+  | Ok res -> return res
+  | Error exn ->
+    Ct.get_messages ~client:true ~server:true conn
+    |> List.filter_map ~f:(fun (severity, message) ->
+      match severity with
+      | Ct.Inform ->
+        Logger.info "%s" message;
+        None
+      | _ -> Some message)
+    |> String.concat ~sep:"\n"
+    |> Exn.reraise exn
+
 let run_query ~month_offset t query =
   Or_error.try_with (fun () ->
     let cols cmd =
@@ -120,6 +148,7 @@ let format_query query params =
 let execute' ({ month_offset } as t) query =
   sequencer_enqueue t @@ fun conn ->
   Logger.debug !"Executing query: %s" query;
+  with_messages conn @@ fun () ->
   In_thread.run (fun () ->
     run_query ~month_offset conn query)
 
@@ -219,18 +248,22 @@ let with_transaction_or_error t f =
       f t))
 
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
-  let conn = Ct.con_alloc (Lazy.force context) in
-  try
-    Ct.con_setstring conn `Username user;
-    Ct.con_setstring conn `Password password;
-    Ct.connect conn host;
-    conn
-  with exn ->
-    begin try
-      Ct.close ~force:true conn;
-    with _ ->
-      ()
-    end;
+  let%bind conn = In_thread.run (fun () ->
+    Ct.con_alloc (Lazy.force context)) in
+  Monitor.try_with (fun () ->
+    with_messages conn @@ fun () ->
+    In_thread.run (fun () ->
+      Ct.con_setstring conn `Username user;
+      Ct.con_setstring conn `Password password;
+      Ct.connect conn host;
+      conn))
+  >>= function
+  | Ok res -> return res
+  | Error exn ->
+    Monitor.try_with (fun () ->
+      In_thread.run (fun () ->
+        Ct.close ~force:true conn))
+    >>= fun _ ->
     if tries = 0 then
       raise exn
     else
@@ -267,7 +300,7 @@ let close ({ conn } as t) =
 let create ~host ~db ~user ~password () =
   let%bind conn =
     let%map conn =
-      In_thread.run (connect ~host ~db ~user ~password)
+      connect ~host ~db ~user ~password ()
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn
