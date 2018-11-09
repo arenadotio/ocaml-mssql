@@ -50,6 +50,9 @@ jobs:
           name: Build
           command: opam config exec -- make
       - run:
+          name: Setup /etc configs
+          command: sudo cp config/* /etc/freetds/
+      - run:
           name: Test
           command: opam config exec -- make coverage
       - run:
