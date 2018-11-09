@@ -543,7 +543,11 @@ let () =
   @ round_trip_tests
   |> List.map ~f:(fun (name, f) ->
     name >:: (fun _ ->
-      async_test @@ fun () ->
-      f ()))
+      try
+        async_test @@ fun () ->
+        f ()
+      with exn ->
+        Monitor.extract_exn exn
+        |> raise))
   |> test_list
   |> run_test_tt_main
