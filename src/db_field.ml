@@ -30,57 +30,28 @@ let recode str =
     String.filter str ~f:(fun c -> Char.to_int c < 128)
 
 let date_of_string s =
-  try
-    Date.of_string s
-  with Invalid_argument _ ->
-    String.split ~on:' ' s
-    |> List.filter ~f:(Fn.non String.is_empty)
-    |> function
-    | [ month ; day ; year ] ->
-      let month = Month.of_string month
-      and day = Int.of_string day
-      and year = Int.of_string year in
-      Date.create_exn ~y:year ~m:month ~d:day
-    | _ ->
-      failwithf "Failed to parse date %s" s ()
+  [ Date.of_string
+  ; Fn.compose
+      Time.(to_date ~zone:Zone.utc)
+      Time.(of_string_gen ~if_no_timezone:(`Use_this_one Zone.utc)) ]
+  |> List.find_map ~f:(fun f ->
+    Option.try_with (fun () -> f s))
+  |> function
+  | Some d -> d
+  | None ->
+    failwithf "Unable to parse datetime %s" s ()
 
 let datetime_of_string s =
-  (* dates look like "Feb  2 2017 12:00:00:000AM" *)
-  String.rsplit2 s ~on:' '
+  [ Time.(of_string_gen ~if_no_timezone:(`Use_this_one Zone.utc))
+  ; Fn.compose
+      (Fn.flip Time.(of_date_ofday ~zone:Zone.utc) Time.Ofday.start_of_day)
+      Date.of_string ]
+  |> List.find_map ~f:(fun f ->
+    Option.try_with (fun () -> f s))
   |> function
-  | Some (datepart, timepart) ->
-    let date = date_of_string datepart in
-    let fail = failwithf "Failed to parse time %s" timepart in
-    let am_pm =
-      if String.is_suffix s ~suffix:"AM" then `AM
-      else if String.is_suffix s ~suffix:"PM" then `PM
-      else fail ()
-    in
-    let hour, minute, second, millisecond =
-      String.drop_suffix timepart 2
-      |> String.split ~on:':'
-      |> List.map ~f:Int.of_string
-      |> function
-      | [ hour ; minute ] ->
-        hour, minute, 0, 0
-      | [ hour ; minute ; second ] ->
-        hour, minute, second, 0
-      | [ hour ; minute ; second ; millisecond ] ->
-        hour, minute, second, millisecond
-      | _ -> fail ()
-    in
-    let hour =
-      match hour, am_pm with
-      | 12, `PM -> 12
-      | 12, `AM -> 0
-      | h, `PM -> h + 12
-      | h, `AM -> h
-    in
-    let time = Time.Ofday.create ~hr:hour ~min:minute ~sec:second
-                 ~ms:millisecond () in
-    Time.of_date_ofday ~zone:Time.Zone.utc date time
-  | _ ->
-    failwithf "Failed to parse datetime %s" s ()
+  | Some d -> d
+  | None ->
+    failwithf "Unable to parse datetime %s" s ()
 
 let of_data ~(month_offset:int) (data:Ct.sql_t) =
   ignore month_offset;

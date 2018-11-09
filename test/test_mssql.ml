@@ -122,7 +122,7 @@ let test_select_and_convert () =
     assert_raises "date as bool" (fun () -> Row.bool row col);
 
     let col = "datetimecol" in
-    ae_sexp [%sexp_of: string option] (Some "Sep 12 1998 12:34:56:000PM")
+    ae_sexp [%sexp_of: string option] (Some "1998-09-12 12:34:56.000")
       (Row.str row col);
     ae_sexp [%sexp_of: Date.t option] (Some (Date.of_string "1998-09-12"))
       (Row.date row col);
