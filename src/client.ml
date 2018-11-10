@@ -45,7 +45,7 @@ let sequencer_enqueue t f =
       Throttle.enqueue conn f
 
 let run_query ~month_offset t query =
-  Logger.debug !"Executing query: %s" query;
+  Logger.debug_in_thread !"Executing query: %s" query;
   let colnames t =
     Dblib.numcols t
     |> List.range 0
@@ -207,7 +207,7 @@ let ignore_conversion_err_handler severity _err msg =
   | _ -> raise (Dblib.Error(severity, msg))
 
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
-  match
+  try
     let conn =
       Dblib.connect
         ~user ~password
@@ -224,14 +224,12 @@ let rec connect ?(tries=5) ~host ~db ~user ~password () =
     Dblib.use conn db;
     Dblib.err_handler ignore_conversion_err_handler;
     conn
-  with
-  | exception exn ->
-    if tries = 0
-    then
+  with exn ->
+    if tries = 0 then
       raise exn
     else
+      Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
       connect ~tries:(tries-1) ~host ~db ~user ~password ()
-  | conn -> conn
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
