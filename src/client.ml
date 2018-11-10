@@ -40,29 +40,25 @@ let sequencer_enqueue t f =
     | _ ->
       Throttle.enqueue conn f
 
-(* Must be run inside the sequencer. This function is weird because we have to
-   get messages in the background thread, but we have to log in the main
-   thread.
+(* Must be run inside the sequencer and inside the helper thread.
    If the function succeeds, log any messages.
    If the function fails, log info messages and include any errors in
    the exception *)
 let with_messages conn f =
-  Monitor.try_with (fun () ->
-    let%map res = f () in
+  try
+    let res = f () in
     Ct.get_messages ~client:true ~server:true conn
     |> List.iter ~f:(fun (severity, message) ->
       match severity with
-      | Ct.Inform -> Logger.info "%s" message
-      | _ -> Logger.error "%s" message);
-    res)
-  >>= function
-  | Ok res -> return res
-  | Error exn ->
+      | Ct.Inform -> Logger.info_in_thread "%s" message
+      | _ -> Logger.error_in_thread "%s" message);
+    res
+  with exn ->
     Ct.get_messages ~client:true ~server:true conn
     |> List.filter_map ~f:(fun (severity, message) ->
       match severity with
       | Ct.Inform ->
-        Logger.info "%s" message;
+        Logger.info_in_thread "%s" message;
         None
       | _ -> Some message)
     |> String.concat ~sep:"\n"
@@ -148,8 +144,8 @@ let format_query query params =
 let execute' ({ month_offset } as t) query =
   sequencer_enqueue t @@ fun conn ->
   Logger.debug !"Executing query: %s" query;
-  with_messages conn @@ fun () ->
   In_thread.run (fun () ->
+    with_messages conn @@ fun () ->
     run_query ~month_offset conn query)
 
 let with_query_in_exn query formatted_query f =
@@ -248,26 +244,31 @@ let with_transaction_or_error t f =
       f t))
 
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
-  let%bind conn = In_thread.run (fun () ->
-    Ct.con_alloc (Lazy.force context)) in
-  Monitor.try_with (fun () ->
-    with_messages conn @@ fun () ->
-    In_thread.run (fun () ->
+  let context = Lazy.force context in
+  let rec connect' ~tries ~host ~db ~user ~password =
+    let conn = Ct.con_alloc context in
+    try
+      with_messages conn @@ fun () ->
       Ct.con_setstring conn `Username user;
       Ct.con_setstring conn `Password password;
       Ct.connect conn host;
-      conn))
-  >>= function
-  | Ok res -> return res
-  | Error exn ->
-    Monitor.try_with (fun () ->
-      In_thread.run (fun () ->
-        Ct.close ~force:true conn))
-    >>= fun _ ->
-    if tries = 0 then
-      raise exn
-    else
-      connect ~tries:(tries-1) ~host ~db ~user ~password ()
+      conn
+    with exn ->
+      let backtrace = Caml.Printexc.get_raw_backtrace () in
+      begin try
+        Ct.close ~force:true conn
+      with exn' ->
+        Logger.info_in_thread "Error closing failed connection in Mssql.connect: %s" (Exn.to_string exn')
+      end;
+      if tries = 0 then
+        Caml.Printexc.raise_with_backtrace exn backtrace
+      else begin
+        Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
+        connect' ~tries:(tries-1) ~host ~db ~user ~password
+      end
+  in
+  In_thread.run (fun () ->
+    connect' ~tries ~host ~db ~user ~password)
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
