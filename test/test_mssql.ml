@@ -259,30 +259,33 @@ let test_param_out_of_range () =
       "SELECT $1 AS a, \
        $2 AS b, \
        $3 AS c",
-      "(src/mssql_error.ml.Mssql_error\
-       \n  ((msg \"Query has param $3 but there are only 2 params.\")\
-       \n    (here src/client.ml:94:18) (query \"SELECT $1 AS a, $2 AS b, $3 AS c\")\
-       \n    (params (((String asdf)) ((Int 9))))))"
+      "(src/mssql_error.ml.Mssql_error(\
+       (msg\"Query has param $3 but there are only 2 params.\")\
+       (here src/client.ml:94:18)\
+       (query\"SELECT $1 AS a, $2 AS b, $3 AS c\")\
+       (params(((String asdf))((Int 9))))))"
     ; Some [ Some(String "asdf") ; Some (Int 9) ],
       "SELECT $1 AS a, \
        $2 AS b, \
        $0 AS c",
-      "(src/mssql_error.ml.Mssql_error\
-       \n  ((msg \"Query has param $0 but params should start at $1.\")\
-       \n    (here src/client.ml:89:18) (query \"SELECT $1 AS a, $2 AS b, $0 AS c\")\
-       \n    (params (((String asdf)) ((Int 9))))))"
+      "(src/mssql_error.ml.Mssql_error(\
+       (msg\"Query has param $0 but params should start at $1.\")\
+       (here src/client.ml:89:18)\
+       (query\"SELECT $1 AS a, $2 AS b, $0 AS c\")\
+       (params(((String asdf))((Int 9))))))"
     ; None,
       "SELECT $1 AS a, \
        $2 AS b",
-      "(src/mssql_error.ml.Mssql_error\
-       \n  ((msg \"Query has param $1 but there are only 0 params.\")\
-       \n    (here src/client.ml:94:18) (query \"SELECT $1 AS a, $2 AS b\")))" ]
+      "(src/mssql_error.ml.Mssql_error(\
+       (msg\"Query has param $1 but there are only 0 params.\")\
+       (here src/client.ml:94:18)\
+       (query\"SELECT $1 AS a, $2 AS b\")))" ]
     |> Deferred.List.iter ~f:(fun (params, query, expect) ->
       let expect = Error expect in
       Monitor.try_with ~extract_exn:true (fun () ->
         Mssql.execute ?params db query
         >>| ignore)
-      >>| Result.map_error ~f:Exn.to_string
+      >>| Result.map_error ~f:Exn.to_string_mach
       >>| ae_sexp [%sexp_of: (unit, string) Result.t] expect))
 
 let round_trip_tests =
