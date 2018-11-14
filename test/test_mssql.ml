@@ -259,34 +259,32 @@ let test_param_out_of_range () =
       "SELECT $1 AS a, \
        $2 AS b, \
        $3 AS c",
-      "(src/mssql_error.ml.Mssql_error(\
-       (msg\"Query has param $3 but there are only 2 params.\")\
-       (here src/client.ml:94:18)\
-       (query\"SELECT $1 AS a, $2 AS b, $3 AS c\")\
-       (params(((String asdf))((Int 9))))))"
+      "Query has param $3 but there are only 2 params."
     ; Some [ Some(String "asdf") ; Some (Int 9) ],
       "SELECT $1 AS a, \
        $2 AS b, \
        $0 AS c",
-      "(src/mssql_error.ml.Mssql_error(\
-       (msg\"Query has param $0 but params should start at $1.\")\
-       (here src/client.ml:89:18)\
-       (query\"SELECT $1 AS a, $2 AS b, $0 AS c\")\
-       (params(((String asdf))((Int 9))))))"
+      "Query has param $0 but params should start at $1."
     ; None,
       "SELECT $1 AS a, \
        $2 AS b",
-      "(src/mssql_error.ml.Mssql_error(\
-       (msg\"Query has param $1 but there are only 0 params.\")\
-       (here src/client.ml:94:18)\
-       (query\"SELECT $1 AS a, $2 AS b\")))" ]
-    |> Deferred.List.iter ~f:(fun (params, query, expect) ->
-      let expect = Error expect in
+      "Query has param $1 but there are only 0 params." ]
+    |> Deferred.List.iter ~f:(fun (expect_params, expect_query, expect_msg) ->
       Monitor.try_with ~extract_exn:true (fun () ->
-        Mssql.execute ?params db query
+        Mssql.execute ?params:expect_params db expect_query
         >>| ignore)
-      >>| Result.map_error ~f:Exn.to_string_mach
-      >>| ae_sexp [%sexp_of: (unit, string) Result.t] expect))
+      >>| function
+      | Ok _ ->
+        assert_failure "Command should have thrown param out of range exception"
+      | Error (Mssql.Error { msg ; query
+                           ; params }) ->
+        ae_sexp [%sexp_of: string] expect_msg msg;
+        ae_sexp [%sexp_of: string option] (Some expect_query) query;
+        ae_sexp [%sexp_of: Mssql.Param.t option list]
+          (Option.value ~default:[] expect_params) params
+      | Error exn ->
+        assert_failure (sprintf "Expected Mssql_error but got %s"
+                          (Exn.to_string exn))))
 
 let round_trip_tests =
   let all_chars = String.init 128 ~f:Char.of_int_exn in
