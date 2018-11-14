@@ -5,15 +5,15 @@ jobs:
       - image: ocaml/opam2:ubuntu-18.04-ocaml-4.07
         environment:
           MSSQL_TEST_USERNAME: sa
-          MSSQL_TEST_PASSWORD: 'i6B*W45XCW1u'
+          # This password isn't secret but needs to meet complexity requirements
+          MSSQL_TEST_PASSWORD: 'this is not secret i6B*W45XCW1u'
           MSSQL_TEST_SERVER: localhost
           MSSQL_TEST_DATABASE: master
           TERM: xterm
       - image: mcr.microsoft.com/mssql/server
         environment:
           ACCEPT_EULA: Y
-          # This password isn't secret but needs to meet complexity requirements
-          SA_PASSWORD: 'i6B*W45XCW1u'
+          SA_PASSWORD: 'this is not secret i6B*W45XCW1u'
     steps:
       - run:
           name: Install apt deps
