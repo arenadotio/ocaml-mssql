@@ -259,34 +259,31 @@ let test_param_out_of_range () =
       "SELECT $1 AS a, \
        $2 AS b, \
        $3 AS c",
-      "Query has param $3 but there are only 2 params. Query:\
-       \nSELECT $1 AS a, $2 AS b, $3 AS c\
-       \n\
-       \nParams: ('asdf' 9)"
+      "(src/mssql_error.ml.Mssql_error\
+       \n  ((msg \"Query has param $3 but there are only 2 params.\")\
+       \n    (here src/client.ml:94:18) (query \"SELECT $1 AS a, $2 AS b, $3 AS c\")\
+       \n    (params (((String asdf)) ((Int 9))))))"
     ; Some [ Some(String "asdf") ; Some (Int 9) ],
       "SELECT $1 AS a, \
        $2 AS b, \
        $0 AS c",
-      "Query has param $0 but params should start at $1. Query:\
-       \nSELECT $1 AS a, $2 AS b, $0 AS c\
-       \n\
-       \nParams: ('asdf' 9)"
+      "(src/mssql_error.ml.Mssql_error\
+       \n  ((msg \"Query has param $0 but params should start at $1.\")\
+       \n    (here src/client.ml:89:18) (query \"SELECT $1 AS a, $2 AS b, $0 AS c\")\
+       \n    (params (((String asdf)) ((Int 9))))))"
     ; None,
       "SELECT $1 AS a, \
        $2 AS b",
-      "Query has param $1 but there are only 0 params. Query:\
-       \nSELECT $1 AS a, $2 AS b\
-       \n\
-       \nParams: ()" ]
-    |> Deferred.List.iter ~f:(fun (params, query, expect_msg) ->
-      let expect =
-        Error
-          (Failure expect_msg)
-      in
+      "(src/mssql_error.ml.Mssql_error\
+       \n  ((msg \"Query has param $1 but there are only 0 params.\")\
+       \n    (here src/client.ml:94:18) (query \"SELECT $1 AS a, $2 AS b\")))" ]
+    |> Deferred.List.iter ~f:(fun (params, query, expect) ->
+      let expect = Error expect in
       Monitor.try_with ~extract_exn:true (fun () ->
         Mssql.execute ?params db query
         >>| ignore)
-      >>| ae_sexp [%sexp_of: (unit, exn) Result.t] expect))
+      >>| Result.map_error ~f:Exn.to_string
+      >>| ae_sexp [%sexp_of: (unit, string) Result.t] expect))
 
 let round_trip_tests =
   let all_chars = String.init 128 ~f:Char.of_int_exn in

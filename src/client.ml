@@ -2,6 +2,8 @@ open Core
 open Async
 open Freetds
 
+open Mssql_error
+
 type t =
   (* dbprocess will be set to None when closed to prevent null pointer crashes *)
   (* The sequencer prevents concurrent use of the DB connection, and also
@@ -27,14 +29,15 @@ let parent_transactions_key =
 let sequencer_enqueue t f =
   match t.conn with
   | None ->
-    failwith "Attempt to use closed DB"
+    failwith [%here] "Attempt to use closed DB"
   | Some conn ->
     Scheduler.find_local parent_transactions_key
     |> function
     | Some parent_transactions
       when Set.mem parent_transactions t.transaction_id ->
-      failwith "Attempted to use outer DB handle inside of with_transaction. \
-                This would have lead to a deadlock."
+      failwith [%here]
+        "Attempted to use outer DB handle inside of with_transaction. \
+         This would have lead to a deadlock."
     | _ ->
       Throttle.enqueue conn f
 
@@ -69,7 +72,7 @@ let run_query ~month_offset t query =
   |> List.rev
 
 let format_query query params =
-  let params =
+  let params_formatted =
     List.map params ~f:Db_field.to_string_escaped
     |> Array.of_list
   in
@@ -83,50 +86,45 @@ let format_query query params =
       (* $1 is the first param *)
       let i = n - 1 in
       if i < 0 then
-        failwithf !"Query has param $%d but params should start at $1. \
-                    Query:\n%s\n\n\
-                    Params: %{sexp: string array}" n query params ();
-      let len = Array.length params in
+        failwithf [%here] ~query ~params
+          "Query has param $%d but params should start at $1."
+          n;
+      let len = Array.length params_formatted in
       if i >= len then
-        failwithf !"Query has param $%d but there are only %d params. \
-                    Query:\n%s\n\n\
-                    Params: %{sexp: string array}" n len query params ();
-      Array.get params i)
+        failwithf [%here] ~query ~params
+          "Query has param $%d but there are only %d params."
+          n len;
+      Array.get params_formatted i)
   |> String.concat ~sep:""
 
-let execute' ({ month_offset } as t) query =
+let execute' ?params ~query ~formatted_query ({ month_offset } as t) =
   sequencer_enqueue t @@ fun conn ->
   In_thread.run (fun () ->
-    run_query ~month_offset conn query)
-
-let with_query_in_exn query formatted_query f =
-  let%map oe = Monitor.try_with_or_error f in
-  Or_error.tag oe ~tag:(sprintf "Formatted query was %s" formatted_query)
-  |> Or_error.tag ~tag:(sprintf "Query was %s" query)
-  |> Or_error.ok_exn
+    Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
+      run_query ~month_offset conn formatted_query))
 
 let execute_multi_result ?(params=[]) conn query =
   let formatted_query = format_query query params in
-  with_query_in_exn query formatted_query @@ fun () ->
-  execute' conn formatted_query
+  execute' conn ~query ~params ~formatted_query
 
 let execute ?params conn query =
   execute_multi_result ?params conn query
   >>| function
   | [] -> []
   | result_set :: [] -> result_set
-  | result_sets ->
-    failwithf !"Mssql.execute expected one result set but got %d result sets: \
-                %{sexp: Row.t list list}"
-      (List.length result_sets) result_sets ()
+  | results ->
+    failwithf [%here] ~query ?params ~results
+      "Mssql.execute expected one result set but got %d result sets"
+      (List.length results)
 
 let execute_unit ?params conn query =
   execute ?params conn query
   >>| function
   | [] -> ()
   | rows ->
-    failwithf !"Mssql.execute_unit expected no results but got %d rows: \
-                %{sexp: Row.t list}" (List.length rows) rows ()
+    failwithf [%here] ~query ?params ~results:[rows]
+      "Mssql.execute_unit expected no results but got %d rows"
+      (List.length rows)
 
 let execute_single ?params conn query =
   execute ?params conn query
@@ -134,16 +132,16 @@ let execute_single ?params conn query =
   | [] -> None
   | row :: [] -> Some row
   | rows ->
-    failwithf !"Mssql.execute_single expected 0 or 1 results but got %d rows: \
-                %{sexp: Row.t list}" (List.length rows) rows ()
+    failwithf [%here] ~query ?params ~results:[rows]
+      "Mssql.execute_single expected 0 or 1 results but got %d rows"
+      (List.length rows)
 
 let execute_many ~params conn query =
   let formatted_query =
     List.map params ~f:(format_query query)
     |> String.concat ~sep:";"
   in
-  with_query_in_exn query formatted_query @@ fun () ->
-  execute' conn formatted_query
+  execute' conn ~query ~params:(List.concat params) ~formatted_query
 
 let begin_transaction conn =
   execute_unit conn "BEGIN TRANSACTION"
@@ -223,7 +221,7 @@ let rec connect ?(tries=5) ~host ~db ~user ~password () =
       raise exn
     else
       Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
-      connect ~tries:(tries-1) ~host ~db ~user ~password ()
+    connect ~tries:(tries-1) ~host ~db ~user ~password ()
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
@@ -263,9 +261,10 @@ let create ~host ~db ~user ~password () =
     (* Since FreeTDS won't tell us if it was compiled with 0-based month or
        1-based months, make a query to check when we first startup and keep
        track of the offset so we can correct it. *)
-    execute conn "SELECT CAST('2017-02-02' AS DATETIME) AS x"
+    let query = "SELECT CAST('2017-02-02' AS DATETIME) AS x" in
+    execute_single conn query
     >>= function
-    | [ row ] ->
+    | Some row ->
       let month_offset =
         Row.datetime_exn row "x"
         |> Time.(to_date ~zone:Zone.utc)
@@ -273,13 +272,19 @@ let create ~host ~db ~user ~password () =
         |> function
         | Month.Feb -> 0
         | Month.Jan -> 1
-        | _ -> assert false
+        | month ->
+          failwithf [%here] ~query
+            "Expected month index workaround query to return February as \
+             either Jan or Feb but got %s"
+            (Month.to_string month)
       in
       let conn = { conn with month_offset } in
       init_conn conn
       >>| fun () ->
       conn
-    | _ -> assert false
+    | None ->
+      failwith [%here] ~query
+        "Expected month index workaround query to return one row but got none"
   end
   >>= function
   | Ok res -> return res
