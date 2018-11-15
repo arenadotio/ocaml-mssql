@@ -12,21 +12,23 @@ type t =
   | Date of Time.t
 [@@deriving sexp]
 
+(** [recode ~src ~dst str] decodes [str] from the character set given by [~src],
+    i.e. "UTF-8", "CP1252", etc. and then encodes it into the character set
+    [~dst].
+
+    We need to do character set conversions because SQL Server can't handle
+    UTF-8 in any reasonable way, so most DB's are going to be using CP1252.
+
+    If [str] is not a valid string in the [~src] encoding, we give up on nice
+    conversions and just ASCIIfy the input and return it (just stripping out
+    all non-ASCII characters)
+
+    If [str] contains a character that can't be represented in [~dst], we
+    skip that character and move on. *)
 let recode ~src ~dst input =
-  (* Need to convert from CP1252 since SQL Server can't handle UTF-8 in any
-     reasonable way.
-
-     Note that we originally used //TRANSLIT and //IGNORE to do this in iconv,
-     but iconv is inconsistent between platforms so we do the conversion one
-     char at a time.
-
-     The logic is:
-
-     - If we can't decode from the [src] encoding, give up and return the
-     ASCIIfied input
-     - If a character can't be encoded in the [dst] encoding, skip it
-     - Otherwise convert from [src] to [dst]
-  *)
+  (*  Note that we originally used //TRANSLIT and //IGNORE to do this in iconv,
+      but iconv is inconsistent between platforms so we do the conversion one
+      char at a time. *)
   try
     let decoder = Encoding.decoder src
     and encoder = Encoding.encoder dst
