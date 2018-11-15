@@ -43,13 +43,15 @@ let recode ~src ~dst input =
 
        https://stijndewitt.com/2014/08/09/max-bytes-in-a-utf-8-char/ *)
     and output = Bytes.create (String.length input * 4) |> Bytes.to_string in
-    while !dec_i < String.length input do
-      Encoding.decode decoder input !dec_i (String.length input - !dec_i)
+    let input_len = String.length input
+    and output_len = String.length output in
+    while !dec_i < input_len do
+      Encoding.decode decoder input !dec_i (input_len - !dec_i)
       |> function
       | Encoding.Dec_ok (c, n) ->
         dec_i := !dec_i + n;
         begin
-          Encoding.encode encoder output !enc_i (String.length output - !enc_i) c
+          Encoding.encode encoder output !enc_i (output_len - !enc_i) c
           |> function
           | Encoding.Enc_ok n -> enc_i := !enc_i + n
           | Enc_error -> (* skip characters that can't be translated *) ()
