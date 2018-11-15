@@ -496,26 +496,6 @@ let test_auto_commit () =
   >>| List.map ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
-(* in-progress transactions should be rolled back if not commited when a
-   connection returns to the pool *)
-let test_pool_auto_rollback () =
-  let expect = [ [ "id", "1" ] ] in
-  Mssql.Test.with_pool ~max_connections:1 @@ fun pool ->
-  Mssql.Pool.with_conn pool begin fun db ->
-    let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
-    let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
-    let%bind () = Mssql.begin_transaction db in
-    Mssql.execute_unit db "INSERT INTO #test VALUES (2)"
-  end
-  >>= fun () ->
-  (* FIXME: If we ever fully reset connections properly, this temporary table
-     won't exist *)
-  Mssql.Pool.with_conn pool begin fun db ->
-    Mssql.execute db "SELECT id FROM #test"
-  end
-  >>| List.map ~f:Mssql.Row.to_alist
-  >>| ae_sexp [%sexp_of: (string * string) list list] expect
-
 let test_other_execute_during_transaction () =
   Mssql.Test.with_conn @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
@@ -588,7 +568,6 @@ let () =
   ; "test auto rollback", test_auto_rollback
   ; "test commit", test_commit
   ; "test auto commit", test_auto_commit
-  ; "test pool auto rollback", test_pool_auto_rollback
   ; "test other execute during transaction", test_other_execute_during_transaction
   ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
   ; "concurrent queries actually concurrent",
