@@ -23,7 +23,7 @@ let recode ~src ~dst str =
      doesn't fix either, so in that case we'll log the offending string and do a
      simple ascii filter. *)
   try
-    let dst = sprintf "%s//TRANSLIT" dst in
+    let dst = sprintf "%s//TRANSLIT//IGNORE" dst in
     Encoding.recode_string ~src ~dst str
   with exn ->
     Logger.info !"Recoding error, falling back to ascii filter %{sexp: exn} %s"
