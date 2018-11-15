@@ -421,8 +421,8 @@ let recoding_tests =
     (* \x81 isn't valid in UTF-8 or CP1252 so both versions fallback to just
        using the ASCII chars *)
     "ç ß ∑ We’re testing iconv here \x81",
-    "ç ß  We’re testing iconv here ",
-    "Ã§ ÃŸ âˆ‘ Weâ€™re testing iconv here " ]
+    "   Were testing iconv here ",
+    "   Were testing iconv here " ]
   |> List.concat_map ~f:(fun (name, input, expect_roundtrip, expect_charcodes) ->
     [ "recoding, round-trip " ^ name, (fun () ->
         let params = [ Some (Mssql.Param.String input) ] in

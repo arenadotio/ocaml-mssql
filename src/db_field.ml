@@ -12,23 +12,55 @@ type t =
   | Date of Time.t
 [@@deriving sexp]
 
-let recode ~src ~dst str =
+let recode ~src ~dst input =
   (* Need to convert from CP1252 since SQL Server can't handle UTF-8 in any
      reasonable way.
-     Note that //TRANSLIT means we will try to convert between similar
-     characters in the two encodings and use ? if necessary instead of
-     erroring out.
 
-     However, it can still error out in really wrong cases, which //IGNORE
-     doesn't fix either, so in that case we'll log the offending string and do a
-     simple ascii filter. *)
+     Note that we originally used //TRANSLIT and //IGNORE to do this in iconv,
+     but iconv is inconsistent between platforms so we do the conversion one
+     char at a time.
+
+     The logic is:
+
+     - If we can't decode from the [src] encoding, give up and return the
+     ASCIIfied input
+     - If a character can't be encoded in the [dst] encoding, skip it
+     - Otherwise convert from [src] to [dst]
+  *)
   try
-    let dst = sprintf "%s//TRANSLIT//IGNORE" dst in
-    Encoding.recode_string ~src ~dst str
+    let decoder = Encoding.decoder src
+    and encoder = Encoding.encoder dst
+    and dec_i = ref 0
+    and enc_i = ref 0
+    (* Using string like this is not recommended, but the library we're using
+       doesn't support bytes as an input to Encoding.encode
+
+       Note that we make a buffer with n * 4 bytes long because UTF-8 characters
+       can be a maximum of 4 bytes. This is very pessimistic, but resizing a
+       string constantly would be annoying and slow.
+
+       https://stijndewitt.com/2014/08/09/max-bytes-in-a-utf-8-char/ *)
+    and output = Bytes.create (String.length input * 4) |> Bytes.to_string in
+    while !dec_i < String.length input do
+      Encoding.decode decoder input !dec_i (String.length input - !dec_i)
+      |> function
+      | Encoding.Dec_ok (c, n) ->
+        dec_i := !dec_i + n;
+        begin
+          Encoding.encode encoder output !enc_i (String.length output - !enc_i) c
+          |> function
+          | Encoding.Enc_ok n -> enc_i := !enc_i + n
+          | Enc_error -> (* skip characters that can't be translated *) ()
+          | Enc_need_more -> failwith "Encoder is out of space"
+        end
+      | Dec_error -> failwith "Decode error"
+      | Dec_need_more -> failwith "Decoder ended with partial character"
+    done;
+    String.sub output 0 !enc_i
   with exn ->
     Logger.info !"Recoding error, falling back to ascii filter %{sexp: exn} %s"
-      exn str;
-    String.filter str ~f:(fun c -> Char.to_int c < 128)
+      exn input;
+    String.filter input ~f:(fun c -> Char.to_int c < 128)
 
 let of_data ~month_offset data =
   match data with
