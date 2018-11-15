@@ -13,13 +13,10 @@ coverage: clean
 	  `find . -name 'bisect*.out'`
 
 pin:
-	# Improvements to ocaml-freetds's bindings, and code to release the runtime
-	# lock
-	# Remove when these pull requests are merged:
-	# https://github.com/kennknowles/ocaml-freetds/pull/31
-	# https://github.com/kennknowles/ocaml-freetds/pull/32
+	# General improvements to ocaml-freetds's dblib bindings
+	# Remove when this pull request is merged: https://github.com/kennknowles/ocaml-freetds/pull/31
 	opam pin add -yn freetds -k git \
-		https://github.com/arenadotio/ocaml-freetds\#release-lock-during-io
+		https://github.com/arenadotio/ocaml-freetds\#dblib-improvements
 	opam pin add -yn mssql .
 
 test:
