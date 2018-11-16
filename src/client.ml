@@ -54,7 +54,7 @@ let run_query ~month_offset t query =
     |> List.range 0
     |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
   in
-  Dblib.cancel t;
+  Dblib.canquery t;
   Dblib.sqlexec t query;
   let rec result_set_loop result_sets =
     match Dblib.results t with
