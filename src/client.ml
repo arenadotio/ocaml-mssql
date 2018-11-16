@@ -16,6 +16,12 @@ type t =
      http://www.pymssql.org/en/stable/freetds_and_dates.html *)
   ; month_offset : int }
 
+let thread = lazy (In_thread.Helper_thread.create ~name:"mssql" ())
+
+let in_thread f =
+  let%bind thread = Lazy.force thread in
+  In_thread.run ~thread f
+
 let next_transaction_id =
   let next = ref Bigint.zero in
   fun () ->
@@ -99,7 +105,7 @@ let format_query query params =
 
 let execute' ?params ~query ~formatted_query ({ month_offset } as t) =
   sequencer_enqueue t @@ fun conn ->
-  In_thread.run (fun () ->
+  in_thread (fun () ->
     Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
       run_query ~month_offset conn formatted_query))
 
@@ -245,12 +251,12 @@ let close ({ conn } as t) =
   | Some conn ->
     t.conn <- None;
     Throttle.enqueue conn @@ fun conn ->
-    In_thread.run (fun () -> Dblib.close conn)
+    in_thread (fun () -> Dblib.close conn)
 
 let create ~host ~db ~user ~password () =
   let%bind conn =
     let%map conn =
-      In_thread.run (connect ~host ~db ~user ~password)
+      in_thread (connect ~host ~db ~user ~password)
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn
