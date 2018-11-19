@@ -549,6 +549,23 @@ let test_prevent_transaction_deadlock () =
                         expect (Error.to_string_mach err))
     | _ -> assert false)
 
+let test_exception_thrown_in_callback () =
+  Mssql.Test.with_conn (fun db ->
+    Monitor.try_with ~extract_exn:true (fun () ->
+      Mssql.execute db "\x81")
+    >>| begin function
+    | Error exn ->
+      if Exn.to_string_mach exn
+         |> String.is_substring ~substring:"CONVERSION"
+         |> not
+      then
+        raise exn
+    | Ok _ -> assert false
+    end
+    >>= fun () ->
+    Mssql.execute db "SELECT 1"
+    |> Deferred.ignore)
+
 let () =
   [ "select and convert", test_select_and_convert
   ; "multiple queries in execute", test_multiple_queries_in_execute
@@ -570,7 +587,8 @@ let () =
   ; "test auto commit", test_auto_commit
   ; "test pool auto rollback", test_pool_auto_rollback
   ; "test other execute during transaction", test_other_execute_during_transaction
-  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock ]
+  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+  ; "test exception in callback", test_exception_thrown_in_callback ]
   @ round_trip_tests
   @ recoding_tests
   |> List.map ~f:(fun (name, f) ->

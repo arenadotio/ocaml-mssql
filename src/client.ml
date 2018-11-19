@@ -198,12 +198,6 @@ let with_transaction_or_error t f =
     Monitor.try_with_join_or_error (fun () ->
       f t))
 
-let ignore_conversion_err_handler severity _err msg =
-  match severity with
-  | Dblib.CONVERSION ->
-    Logger.info "Ignoring conversion error: %s" msg;
-  | _ -> raise (Dblib.Error(severity, msg))
-
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
   try
     let conn =
@@ -220,7 +214,6 @@ let rec connect ?(tries=5) ~host ~db ~user ~password () =
         host
     in
     Dblib.use conn db;
-    Dblib.err_handler ignore_conversion_err_handler;
     conn
   with exn ->
     if tries = 0 then

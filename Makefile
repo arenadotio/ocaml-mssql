@@ -14,9 +14,12 @@ coverage: clean
 
 pin:
 	# General improvements to ocaml-freetds's dblib bindings
-	# Remove when this pull request is merged: https://github.com/kennknowles/ocaml-freetds/pull/31
+	# See https://github.com/arenadotio/ocaml-freetds/tree/dblib-dont-throw-exceptions-in-callbacks
+	# Remove when these pull requests are merged:
+	# https://github.com/kennknowles/ocaml-freetds/pull/31
+	# https://github.com/kennknowles/ocaml-freetds/pull/33
 	opam pin add -yn freetds -k git \
-		https://github.com/arenadotio/ocaml-freetds\#dblib-improvements
+		https://github.com/arenadotio/ocaml-freetds\#1ad2ce3111a5f0413fbc4f8f6fc223e18032ce01
 	opam pin add -yn mssql .
 
 test:
