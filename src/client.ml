@@ -16,12 +16,6 @@ type t =
      http://www.pymssql.org/en/stable/freetds_and_dates.html *)
   ; month_offset : int }
 
-let thread = lazy (In_thread.Helper_thread.create ~name:"mssql" ())
-
-let in_thread f =
-  let%bind thread = Lazy.force thread in
-  In_thread.run ~thread f
-
 let next_transaction_id =
   let next = ref Bigint.zero in
   fun () ->
@@ -105,7 +99,7 @@ let format_query query params =
 
 let execute' ?params ~query ~formatted_query ({ month_offset } as t) =
   sequencer_enqueue t @@ fun conn ->
-  in_thread (fun () ->
+  In_thread.run (fun () ->
     Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
       run_query ~month_offset conn formatted_query))
 
@@ -198,12 +192,6 @@ let with_transaction_or_error t f =
     Monitor.try_with_join_or_error (fun () ->
       f t))
 
-let ignore_conversion_err_handler severity _err msg =
-  match severity with
-  | Dblib.CONVERSION ->
-    Logger.info "Ignoring conversion error: %s" msg;
-  | _ -> raise (Dblib.Error(severity, msg))
-
 let rec connect ?(tries=5) ~host ~db ~user ~password () =
   try
     let conn =
@@ -220,14 +208,13 @@ let rec connect ?(tries=5) ~host ~db ~user ~password () =
         host
     in
     Dblib.use conn db;
-    Dblib.err_handler ignore_conversion_err_handler;
     conn
   with exn ->
     if tries = 0 then
       raise exn
     else
       Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
-    connect ~tries:(tries-1) ~host ~db ~user ~password ()
+    connect ~tries:(tries-1) ~host ~db ~user ~password ~port ()
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
@@ -251,7 +238,7 @@ let close ({ conn } as t) =
   | Some conn ->
     t.conn <- None;
     Throttle.enqueue conn @@ fun conn ->
-    in_thread (fun () -> Dblib.close conn)
+    In_thread.run (fun () -> Dblib.close conn)
 
 let create ~host ~db ~user ~password () =
   let%bind conn =
