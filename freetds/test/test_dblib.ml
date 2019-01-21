@@ -135,6 +135,18 @@ let test_insert params _ =
            Dblib.([STRING ""; INT 0; STRING ""; INT(-1); FLOAT(-6.3)]);
     )
 
+let test_exception_in_callback params _ =
+    with_conn params (fun conn ->
+        begin
+            try
+                (* \x81 is invalid in UTF-8 and CP1252 *)
+                Dblib.sqlexec conn "\x81"
+            with
+            | Dblib.Error(CONVERSION, _) -> ()
+            | _ -> assert false
+        end;
+        Dblib.sqlexec conn "SELECT 1")
+
 let () =
   match get_params () with
   | None ->
@@ -145,7 +157,8 @@ let () =
      ; "basic query", test_basic_query
      ; "empty strings", test_empty_strings
      ; "data", test_data
-     ; "insert", test_insert ]
+     ; "insert", test_insert
+     ; "test exception in callback", test_exception_in_callback ]
      |> List.map (fun (name, test) -> name >:: test params)
      |> OUnit2.test_list
      |> OUnit2.run_test_tt_main
