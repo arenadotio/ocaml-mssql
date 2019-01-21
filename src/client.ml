@@ -118,13 +118,14 @@ let execute ?params conn query =
       (List.length results)
 
 let execute_unit ?params conn query =
-  execute ?params conn query
-  >>| function
-  | [] -> ()
-  | rows ->
-    failwithf [%here] ~query ?params ~results:[rows]
-      "Mssql.execute_unit expected no results but got %d rows"
-      (List.length rows)
+  let%map results = execute_multi_result ?params conn query in
+  List.iteri results ~f:(fun i ->
+    function
+    | [] -> ()
+    | rows ->
+      failwithf [%here] ~query ?params ~results
+        "Mssql.execute_unit expected no rows but result set %d has %d rows"
+        i (List.length rows))
 
 let execute_single ?params conn query =
   execute ?params conn query
