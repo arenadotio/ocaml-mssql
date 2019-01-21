@@ -192,7 +192,7 @@ let with_transaction_or_error t f =
     Monitor.try_with_join_or_error (fun () ->
       f t))
 
-let rec connect ?(tries=5) ~host ~db ~user ~password () =
+let rec connect ?(tries=5) ~host ~db ~user ~password ~port () =
   try
     let conn =
       Dblib.connect
@@ -240,10 +240,10 @@ let close ({ conn } as t) =
     Throttle.enqueue conn @@ fun conn ->
     In_thread.run (fun () -> Dblib.close conn)
 
-let create ~host ~db ~user ~password () =
+let create ~host ~db ~user ~password ~port () =
   let%bind conn =
     let%map conn =
-      in_thread (connect ~host ~db ~user ~password)
+      In_thread.run (connect ~host ~db ~user ~password ~port)
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn
@@ -285,28 +285,25 @@ let create ~host ~db ~user ~password () =
     let%map () = close conn in
     raise exn
 
-let with_conn ~host ~db ~user ~password f =
-  let%bind conn = create ~host ~db ~user ~password () in
+let with_conn ~host ~db ~user ~password ~port f =
+  let%bind conn = create ~host ~db ~user ~password ~port () in
   Monitor.protect (fun () -> f conn) ~finally:(fun () -> close conn)
 
 (* FIXME: There's a bunch of other stuff we should really reset, but
    SQL Server doesn't publically expose sp_reset_connect :( *)
 let cleanup_connection conn =
-  (* rollback transactions until there are none left *)
-  Deferred.repeat_until_finished () (fun () ->
-    Monitor.try_with (fun () ->
-      rollback conn)
-    >>| function
-    | Ok _ -> `Repeat ()
-    | Error _ -> `Finished ())
+  execute_unit conn {|
+    IF @@TRANCOUNT > 0
+      ROLLBACK
+  |}
 
 module Pool = struct
   type p =
     { make : unit -> t Deferred.t
     ; connections : t option ref Throttle.t }
 
-  let with_pool ~host ~db ~user ~password ?(max_connections=10) f =
-    let make = create ~host ~db ~user ~password in
+  let with_pool ~host ~db ~user ~password ~port ?(max_connections=10) f =
+    let make = create ~host ~db ~user ~password ~port in
     let connections =
       List.init max_connections ~f:(fun _ -> ref None)
       |> Throttle.create_with ~continue_on_error:true
