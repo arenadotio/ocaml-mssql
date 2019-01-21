@@ -1,21 +1,35 @@
 open Core
 open Async
 
-let tags = [ "lib", "mssql" ]
+let src = Logs.Src.create "mssql"
 
-let log_in_thread level fmt =
-  ksprintf (fun str ->
-    Thread_safe.run_in_async_exn (fun () ->
-      Log.Global.printf ~level ~tags "%s" str)) fmt
+let lib_tag =
+  Logs.Tag.def "lib" Format.pp_print_string
 
-let debug fmt = Log.Global.debug ~tags fmt
+let msg ?(tags=Logs.Tag.empty) level fmt =
+  ksprintf (fun msg ->
+    Logs.msg ~src level (fun m ->
+      let tags = Logs.Tag.add lib_tag "mssql" tags in
+      m ~tags "%s" msg))
+    fmt
 
-let debug_in_thread fmt= log_in_thread `Debug fmt
+let debug ?tags fmt =
+  msg ?tags Logs.Debug fmt
 
-let info fmt = Log.Global.info ~tags fmt
+let debug_in_thread ?tags fmt =
+  Thread_safe.run_in_async_exn (fun () ->
+    debug ?tags fmt)
 
-let info_in_thread fmt = log_in_thread `Info fmt
+let info ?tags fmt =
+  msg ?tags Logs.Info fmt
 
-let error fmt = Log.Global.error ~tags fmt
+let info_in_thread ?tags fmt =
+  Thread_safe.run_in_async_exn (fun () ->
+    info ?tags fmt)
 
-let error_in_thread fmt = log_in_thread `Error fmt
+let error ?tags fmt =
+  msg ?tags Logs.Error fmt
+
+let error_in_thread ?tags fmt =
+  Thread_safe.run_in_async_exn (fun () ->
+    error ?tags fmt)
