@@ -13,10 +13,7 @@ coverage: clean
 	  `find . -name 'bisect*.out'`
 
 pin:
-	# General improvements to ocaml-freetds's dblib bindings
-	# Remove when this pull request is merged: https://github.com/kennknowles/ocaml-freetds/pull/31
-	opam pin add -yn freetds -k git \
-		https://github.com/arenadotio/ocaml-freetds\#dblib-improvements
+	# note that ocaml-freetds is currently vendored instead of pinned
 	opam pin add -yn mssql .
 
 test:
