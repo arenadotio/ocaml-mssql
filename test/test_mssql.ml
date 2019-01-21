@@ -566,6 +566,32 @@ let test_exception_thrown_in_callback () =
     Mssql.execute db "SELECT 1"
     |> Deferred.ignore)
 
+let test_exception_with_multiple_results () =
+  (* Ensure that our code properly cleans up existing result sets before a new
+     query. Before D13534, we sometimes saw:
+     "Attempt to initiate a new Adaptive Server operation with results pending" *)
+  Mssql.Test.with_conn (fun db ->
+    Monitor.try_with ~extract_exn:true (fun () ->
+      Mssql.execute db {|
+        CREATE TABLE #test (id INT PRIMARY KEY);
+        INSERT INTO #test (id) VALUES (1);
+        INSERT INTO #test (id) VALUES (1); -- primary key violation
+        SELECT * FROM #test;
+      |})
+    >>| begin function
+    | Error exn ->
+      if Exn.to_string_mach exn
+         |> String.is_substring ~substring:"PRIMARY KEY"
+         |> not
+      then
+        raise exn
+    | Ok _ -> assert false
+    end
+    >>= fun () ->
+    (* if our cleanup code works right, this won't throw an exception *)
+    Mssql.execute db "SELECT 1"
+    |> Deferred.ignore)
+
 let () =
   [ "select and convert", test_select_and_convert
   ; "multiple queries in execute", test_multiple_queries_in_execute
@@ -588,7 +614,8 @@ let () =
   ; "test pool auto rollback", test_pool_auto_rollback
   ; "test other execute during transaction", test_other_execute_during_transaction
   ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
-  ; "test exception in callback", test_exception_thrown_in_callback ]
+  ; "test exception in callback", test_exception_thrown_in_callback
+  ; "test exception with multiple results", test_exception_with_multiple_results ]
   @ round_trip_tests
   @ recoding_tests
   |> List.map ~f:(fun (name, f) ->
