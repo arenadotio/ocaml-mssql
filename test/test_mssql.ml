@@ -277,7 +277,7 @@ let test_param_out_of_range () =
       | Ok _ ->
         assert_failure "Command should have thrown param out of range exception"
       | Error (Mssql.Error { msg ; query
-                           ; params }) ->
+                           ; params ; _ }) ->
         ae_sexp [%sexp_of: string] expect_msg msg;
         ae_sexp [%sexp_of: string option] (Some expect_query) query;
         ae_sexp [%sexp_of: Mssql.Param.t option list]

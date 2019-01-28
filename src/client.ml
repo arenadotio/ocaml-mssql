@@ -97,7 +97,7 @@ let format_query query params =
       Array.get params_formatted i)
   |> String.concat ~sep:""
 
-let execute' ?params ~query ~formatted_query ({ month_offset } as t) =
+let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) =
   sequencer_enqueue t @@ fun conn ->
   In_thread.run (fun () ->
     Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
@@ -232,7 +232,7 @@ let init_conn c =
      SET CONCAT_NULL_YIELDS_NULL ON"
   |> Deferred.ignore
 
-let close ({ conn } as t) =
+let close ({ conn ; _ } as t) =
   match conn with
   (* already closed *)
   | None -> Deferred.unit

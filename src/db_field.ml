@@ -60,7 +60,7 @@ let recode ~src ~dst input =
       | Dec_error -> failwith "Decode error"
       | Dec_need_more -> failwith "Decoder ended with partial character"
     done;
-    String.sub output 0 !enc_i
+    String.sub output ~pos:0 ~len:!enc_i
   with exn ->
     Logger.info !"Recoding error, falling back to ascii filter %{sexp: exn} %s"
       exn input;

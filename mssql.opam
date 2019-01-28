@@ -9,8 +9,8 @@ synopsis: "Async SQL Server client using FreeTDS"
 description: "Mssql wraps FreeTDS in a nicer and safer interface, with support for parameterized queries, thread-based async IO, and a thread pool."
 
 build: [
-  ["jbuilder" "build" "-p" name "-j" jobs]
-  ["jbuilder" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
 ]
 
 depends: [
