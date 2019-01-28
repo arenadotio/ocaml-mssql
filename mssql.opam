@@ -5,6 +5,8 @@ homepage: "https://github.com/arenadotio/ocaml-mssql"
 dev-repo: "git+https://github.com/arenadotio/ocaml-mssql.git"
 bug-reports: "https://github.com/arenadotio/ocaml-mssql/issues"
 doc: "https://arenadotio.github.io/ocaml-mssql/doc"
+synopsis: "Async SQL Server client using FreeTDS"
+description: "Mssql wraps FreeTDS in a nicer and safer interface, with support for parameterized queries, thread-based async IO, and a thread pool."
 
 build: [
   ["jbuilder" "build" "-p" name "-j" jobs]
