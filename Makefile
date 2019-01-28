@@ -1,14 +1,14 @@
 all: build
 
 build:
-	@jbuilder build @install
+	@dune build @install
 
 clean:
 	@rm -rf `find . -name 'bisect*.out'` _coverage
-	@jbuilder clean
+	@dune clean
 
 coverage: clean
-	@BISECT_ENABLE=YES jbuilder runtest
+	@BISECT_ENABLE=YES dune runtest
 	@bisect-ppx-report -I _build/default/ -html _coverage/ \
 	  `find . -name 'bisect*.out'`
 
@@ -17,7 +17,7 @@ pin:
 	opam pin add -yn mssql .
 
 test:
-	@jbuilder runtest --force
+	@dune runtest --force
 
 # until we have https://github.com/ocaml/opam-publish/issues/38
 REPO=../opam-repository
