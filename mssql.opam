@@ -6,8 +6,10 @@ dev-repo: "git+https://github.com/arenadotio/ocaml-mssql.git"
 bug-reports: "https://github.com/arenadotio/ocaml-mssql/issues"
 doc: "https://arenadotio.github.io/ocaml-mssql/doc"
 
-build: ["jbuilder" "build" "-p" name "-j" jobs]
-build-test: ["jbuilder" "runtest" "-p" name "-j" jobs]
+build: [
+  ["jbuilder" "build" "-p" name "-j" jobs]
+  ["jbuilder" "runtest" "-p" name "-j" jobs] {with-test}
+]
 
 depends: [
   "async"
