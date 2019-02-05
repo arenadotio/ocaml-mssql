@@ -10,7 +10,7 @@ val with_conn
   -> db:string
   -> user:string
   -> password:string
-  -> port:string
+  -> ?port:int
   -> (t -> 'a Deferred.t)
   -> 'a Deferred.t
 
@@ -84,7 +84,7 @@ module Pool : sig
     -> db:string
     -> user:string
     -> password:string
-    -> port:string
+    -> ?port:int
     -> ?max_connections:int
     -> (p -> 'a Deferred.t)
     -> 'a Deferred.t
