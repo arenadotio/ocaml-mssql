@@ -193,7 +193,7 @@ let with_transaction_or_error t f =
     Monitor.try_with_join_or_error (fun () ->
       f t))
 
-let rec connect ?(tries=5) ~host ~db ~user ~password ~port () =
+let rec connect ?(tries=5) ~host ~db ~user ~password ?port () =
   try
     let conn =
       Dblib.connect
@@ -206,7 +206,11 @@ let rec connect ?(tries=5) ~host ~db ~user ~password ~port () =
            client's character set.  Unconverted bytes were changed to question
            marks ('?')\")") *)
         ~charset:"CP1252"
-        host
+        (* You set ports in FreeTDS by appending them to the host name:
+           http://www.freetds.org/userguide/portoverride.htm *)
+        (match port with
+         | None -> host
+         | Some port -> sprintf "%s:%d" host port)
     in
     Dblib.use conn db;
     conn
@@ -215,7 +219,7 @@ let rec connect ?(tries=5) ~host ~db ~user ~password ~port () =
       raise exn
     else
       Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
-    connect ~tries:(tries-1) ~host ~db ~user ~password ~port ()
+    connect ~tries:(tries-1) ~host ~db ~user ~password ?port ()
 
 (* These need to be on for some reason, eg: DELETE failed because the following
    SET options have incorrect settings: 'ANSI_NULLS, QUOTED_IDENTIFIER,
@@ -241,10 +245,10 @@ let close ({ conn ; _ } as t) =
     Throttle.enqueue conn @@ fun conn ->
     In_thread.run (fun () -> Dblib.close conn)
 
-let create ~host ~db ~user ~password ~port () =
+let create ~host ~db ~user ~password ?port () =
   let%bind conn =
     let%map conn =
-      In_thread.run (connect ~host ~db ~user ~password ~port)
+      In_thread.run (connect ~host ~db ~user ~password ?port)
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn
@@ -286,8 +290,8 @@ let create ~host ~db ~user ~password ~port () =
     let%map () = close conn in
     raise exn
 
-let with_conn ~host ~db ~user ~password ~port f =
-  let%bind conn = create ~host ~db ~user ~password ~port () in
+let with_conn ~host ~db ~user ~password ?port f =
+  let%bind conn = create ~host ~db ~user ~password ?port () in
   Monitor.protect (fun () -> f conn) ~finally:(fun () -> close conn)
 
 (* FIXME: There's a bunch of other stuff we should really reset, but
@@ -303,8 +307,8 @@ module Pool = struct
     { make : unit -> t Deferred.t
     ; connections : t option ref Throttle.t }
 
-  let with_pool ~host ~db ~user ~password ~port ?(max_connections=10) f =
-    let make = create ~host ~db ~user ~password ~port in
+  let with_pool ~host ~db ~user ~password ?port ?(max_connections=10) f =
+    let make = create ~host ~db ~user ~password ?port in
     let connections =
       List.init max_connections ~f:(fun _ -> ref None)
       |> Throttle.create_with ~continue_on_error:true

@@ -9,15 +9,15 @@ let params =
     ; "MSSQL_TEST_PORT" ]
     |> List.map ~f:Sys.getenv
     |> function
-    | [ Some host ; Some db ; Some user ; Some password ; Some port ] ->
-      host, db, user, password, port
+    | [ Some host ; Some db ; Some user ; Some password ; port ] ->
+      host, db, user, password, Option.map ~f:Int.of_string port
     | _ -> raise (OUnitTest.Skip "MSSQL_TEST_* environment not set"))
 
 let with_conn f =
   let host, db, user, password, port = Lazy.force params in
-  Client.with_conn ~host ~db ~user ~password ~port f
+  Client.with_conn ~host ~db ~user ~password ?port f
 
 let with_pool ?max_connections f =
   let host, db, user, password, port = Lazy.force params in
-  Client.Pool.with_pool ~host ~db ~user ~password ~port ?max_connections f
+  Client.Pool.with_pool ~host ~db ~user ~password ?port ?max_connections f
 
