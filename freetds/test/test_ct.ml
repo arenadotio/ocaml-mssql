@@ -2,21 +2,8 @@ open Freetds
 open OUnit2
 open Printf
 
-let string_of_data : Ct.sql_t -> string = function
-  | `Bit b -> if b then "Bit(1)" else "Bit(0)"
-  | `Tinyint i -> sprintf "Tinyint %i" i
-  | `Smallint i -> sprintf "Smallint %i" i
-  | `Int i -> sprintf "Int %li" i
-  | `Text s -> sprintf "Text %S" s
-  | `String s -> sprintf "String %S" s
-  | `Binary s -> sprintf "Binary %S" s
-  | `Float f -> sprintf "Float %g" f
-  | `Datetime s -> sprintf "Datetime %s" s
-  | `Decimal s -> sprintf "Decimal %s" s
-  | `Null -> "Null"
-
 let string_of_row row =
-  let row = List.map string_of_data row in
+  let row = List.map Ct.string_of_sql_t row in
   sprintf "[%s]" (String.concat ", " row)
 
 let string_of_rows rows =
@@ -43,7 +30,7 @@ let with_conn (user, password, server, database) f =
   let cmd = Ct.cmd_alloc conn in
   Ct.command cmd `Lang ("USE " ^ database);
   Ct.send cmd;
-  ignore(Ct.results cmd);
+  assert_equal ~printer:Ct.string_of_result_type `Cmd_succeed (Ct.results cmd);
   try
     f conn;
     Ct.close conn
@@ -65,7 +52,7 @@ let sql_results conn sql =
      let cols = Array.to_list cols in
      (try
        while true do
-         ignore(Ct.fetch cmd);
+         assert_equal ~printer:string_of_int 1 (Ct.fetch cmd);
          let row = List.map (fun c ->
                        Ct.buffer_contents c.Ct.col_buffer) cols in
          rows := row :: !rows
@@ -99,6 +86,39 @@ let test_empty_strings params _ =
         rows ~printer:string_of_rows
     )
 
+let test_null_in_strings params _ =
+  with_conn params (fun conn ->
+      let rows = sql_results conn
+                   "SELECT \
+                    CAST(CHAR(0) + 'test' AS VARCHAR(10)) AS vc,
+                    CAST(CHAR(0) + 'test' AS TEXT) AS txt,
+                    CAST(CHAR(0) + 'test' AS VARBINARY(10)) AS vb" in
+      assert_equal [ [`String "\x00test"; `String "\x00test"; `Binary "\x00test"] ]
+        rows ~printer:string_of_rows
+    )
+
+let test_int_types params _ =
+  with_conn params (fun conn ->
+      let rows = sql_results conn
+                  "SELECT \
+                   CAST(5 AS BIT) AS bit,
+                   CAST(5 AS TINYINT) AS tinyint,
+                   CAST(5 AS SMALLINT) AS smallint,
+                   CAST(5 AS INT) AS int,
+                   CAST(5 AS BIGINT) AS bigint,
+                   CAST(5 AS DECIMAL) AS decimal,
+                   CAST(5 AS NUMERIC) AS numeric,
+                   CAST(5 AS FLOAT) as float,
+                   CAST(5 AS REAL) as real,
+                   CAST(5 AS MONEY) as money,
+                   CAST(5 AS SMALLMONEY) as smallmoney" in
+      assert_equal [ [`Bit true; `Int (Int32.of_int 5); `Int (Int32.of_int 5);
+                      `Int (Int32.of_int 5); `Decimal "5"; `Decimal "5";
+                      `Decimal "5"; `Float 5.; `Float 5.; `Decimal "5.00";
+                      `Decimal  "5.00"] ]
+        rows ~printer:string_of_rows
+    )
+
 let () =
     match get_params () with
   | None ->
@@ -106,7 +126,9 @@ let () =
                     variables aren't set"
   | Some params ->
      ["basic", test_basic;
-      "empty strings", test_empty_strings ]
+      "empty strings", test_empty_strings;
+      "null in strings", test_null_in_strings;
+      "int types", test_int_types ]
      |> List.map (fun (name, test) -> name >:: test params)
      |> OUnit2.test_list
      |> OUnit2.run_test_tt_main
