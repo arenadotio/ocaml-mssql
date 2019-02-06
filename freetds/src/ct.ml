@@ -18,7 +18,8 @@
 *)
 
 (** A wrapper on the FreeTDS library for accessing Sybase and
-   Microsoft database providers. *)
+    Microsoft database providers. *)
+open Printf
 
 (* This is the catch-all exception that client code should trap *)
 exception End_results
@@ -44,6 +45,15 @@ type cmd_type = [ `Lang | `Rpc ]
 type cmd_option = [ `Recompile | `NoRecompile ]
 
 type result_type = [ `Row | `Param | `Status | `Cmd_done | `Cmd_succeed | `Cmd_fail ]
+
+let string_of_result_type : result_type -> string = function
+  | `Row -> "Row"
+  | `Param -> "Param"
+  | `Status -> "Status"
+  | `Cmd_done -> "Cmd_done"
+  | `Cmd_succeed -> "Cmd_succeed"
+  | `Cmd_fail -> "Cmd_fail"
+
 type resinfo_type = [ `Row_count | `Cmd_number | `Numdata ]
 
 (* type datetime = {
@@ -91,6 +101,19 @@ type sql_t =
 
         | `Null
         ]
+
+let string_of_sql_t : sql_t -> string = function
+  | `Bit b -> if b then "Bit(1)" else "Bit(0)"
+  | `Tinyint i -> sprintf "Tinyint(%i)" i
+  | `Smallint i -> sprintf "Smallint(%i)" i
+  | `Int i -> sprintf "Int(%li)" i
+  | `Text s -> sprintf "Text(%S)" s
+  | `String s -> sprintf "String(%S)" s
+  | `Binary s -> sprintf "Binary(%S)" s
+  | `Float f -> sprintf "Float(%g)" f
+  | `Datetime s -> sprintf "Datetime(%s)" s
+  | `Decimal s -> sprintf "Decimal(%s)" s
+  | `Null -> "Null"
 
 let _ =
     List.iter (fun (x,y) -> Callback.register_exception x y)

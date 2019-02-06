@@ -66,6 +66,8 @@ type sql_t =
 | `Null
 ]
 
+val string_of_sql_t : sql_t -> string
+
 (** {4 Context} *)
 external ctx_create : unit -> context = "mltds_cs_ctx_create"
 
@@ -115,6 +117,8 @@ external send : command -> unit = "mltds_ct_send"
 (** Result types; usually we only care about Row *)
 type result_type =
         [ `Cmd_done | `Cmd_fail | `Cmd_succeed | `Param | `Row | `Status ]
+
+val string_of_result_type : result_type -> string
 
 external results : command -> result_type = "mltds_ct_results"
 
