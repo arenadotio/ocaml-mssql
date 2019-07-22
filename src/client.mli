@@ -30,6 +30,7 @@ val execute : ?params:Db_field.t option list -> t -> string -> Row.t list Deferr
 val execute_map : ?params:Db_field.t option list -> f:(Row.t -> 'a) -> t -> string -> 'a list Deferred.t
 val execute_iter : ?params:Db_field.t option list -> f:(Row.t -> unit) -> t -> string -> unit Deferred.t
 val execute_fold : ?params:Db_field.t option list -> init:'a -> f:('a -> Row.t -> 'a) -> t -> string -> 'a Deferred.t
+val execute_pipe : ?params:Db_field.t option list -> t -> string -> Row.t Pipe.Reader.t
 
 (** Like [execute] but asserts that the result set will be empty. *)
 val execute_unit : ?params:Db_field.t option list -> t -> string -> unit Deferred.t

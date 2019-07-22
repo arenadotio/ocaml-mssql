@@ -102,6 +102,8 @@ let execute_multi_result ?params conn query =
     IterLabels.map result_set ~f:Iter.to_list
     |> Iter.to_list)
 
+(* Execute [f iter] for the first result set iterator and throw an exception if there is more than
+   one result set *)
 let execute_f ?params ~f conn query =
   execute_multi_result' ?params conn query ~f:(fun result_sets ->
     let result =
@@ -130,6 +132,31 @@ let execute_fold ?params ~init ~f conn query =
 
 let execute_map ?params ~f conn query =
   execute_f ?params ~f:(Fn.compose Iter.to_list (IterLabels.map ~f)) conn query
+
+let execute_pipe ?params conn query =
+  let reader, writer = Thread_safe_pipe.create () in
+  (* The pipe has to be closed in a background thread. Try to close it
+     in the same thread we're iterating in; but if that doesn't work,
+     make sure to close it the slow way (otherwise the caller will
+     hang) *)
+  let closed = ref false in
+  Monitor.protect (fun () ->
+    execute_f ?params conn query ~f:(fun rows ->
+      protect ~f:(fun () ->
+        IterLabels.iter rows ~f:(fun row ->
+          Thread_safe_pipe.write ~if_closed:Return writer row
+          |> ignore))
+        ~finally:(fun () ->
+          Thread_safe_pipe.close writer;
+          closed := true)))
+    ~finally:(fun () ->
+      if not !closed then
+        In_thread.run (fun () ->
+          Thread_safe_pipe.close writer)
+      else
+        Deferred.unit)
+  |> don't_wait_for;
+  reader
 
 let execute_unit ?params conn query =
   let%map results = execute_multi_result ?params conn query in

@@ -593,6 +593,29 @@ let test_exception_with_multiple_results () =
     Mssql.execute db "SELECT 1"
     |> Deferred.ignore)
 
+let test_execute_pipe () =
+  Mssql.Test.with_conn (fun db ->
+    Mssql.execute_unit db "CREATE TABLE #test (id int)"
+    >>= fun () ->
+    let values =
+      List.init 100 ~f:Fn.id
+    in
+    Deferred.List.iter values ~f:(fun value ->
+      Mssql.execute_unit ~params:[Some (Int value) ] db "INSERT INTO #test (id) VALUES ($1)")
+    >>= fun () ->
+    Mssql.execute_pipe db "SELECT id FROM #test ORDER BY id"
+    |> Pipe.map ~f:(fun row -> Row.int_exn row "id")
+    |> Pipe.to_list
+    >>| ae_sexp [%sexp_of: int list] values)
+  >>| ignore
+
+let test_execute_pipe_error () =
+  Mssql.Test.with_conn (fun db ->
+    Monitor.try_with @@ fun () ->
+    Mssql.execute_unit db "lkmsdflkmdsf")
+  >>| Result.is_error
+  >>| assert_bool "Invalid query should return an error"
+
 let () =
   [ "all",
     [ "select and convert", test_select_and_convert
@@ -617,7 +640,9 @@ let () =
     ; "test other execute during transaction", test_other_execute_during_transaction
     ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
     ; "test exception in callback", test_exception_thrown_in_callback
-    ; "test exception with multiple results", test_exception_with_multiple_results ]
+    ; "test exception with multiple results", test_exception_with_multiple_results
+    ; "test execute_pipe", test_execute_pipe
+    ; "test execute_pipe_error", test_execute_pipe_error ]
     @ round_trip_tests
     @ recoding_tests
     |> List.map ~f:(fun (name, f) ->
