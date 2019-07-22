@@ -58,7 +58,7 @@ let run_query ~month_offset t query =
         Result.try_with (fun () -> Dblib.nextrow t)
         |> function
         | Ok row ->
-          let row = Row.create_exn ~month_offset row colnames in
+          let row = Row.create_exn ~month_offset ~colnames row in
           loop (row :: rows) colnames
         | Error Caml.Not_found ->
           List.rev rows :: result_sets
