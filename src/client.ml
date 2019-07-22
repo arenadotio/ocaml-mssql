@@ -67,44 +67,69 @@ let format_query query params =
       Array.get params_formatted i)
   |> String.concat ~sep:""
 
-let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) =
+let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) ~f =
   sequencer_enqueue t @@ fun conn ->
-  In_thread.run (fun () ->
-    Logger.debug !"Executing query: %s" formatted_query;
-    Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
-      Dblib.cancel conn;
-      Dblib.sqlexec conn formatted_query;
-      let result_sets = ref [] in
-      while Dblib.results conn do
+  In_thread.run @@ fun () ->
+  Logger.debug !"Executing query: %s" formatted_query;
+  Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
+    Dblib.cancel conn;
+    Dblib.sqlexec conn formatted_query;
+    Iter.from_fun (fun () ->
+      if Dblib.results conn then
         let colnames =
           Dblib.numcols conn
           |> List.range 0
           |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
-        and rows = ref [] in
-        try
-          while true do
+        in
+        Iter.from_fun (fun () ->
+          try
             let row = Dblib.nextrow conn in
             let row = Row.create_exn ~month_offset ~colnames row in
-            rows := (row :: !rows)
-          done
-        with Caml.Not_found ->
-          result_sets := (List.rev !rows) :: !result_sets
-      done;
-      List.rev !result_sets))
+            Some row
+          with Caml.Not_found ->
+            None)
+        |> Option.some
+      else
+        None)
+    |> f)
 
-let execute_multi_result ?(params=[]) conn query =
+let execute_multi_result' ?(params=[]) conn query =
   let formatted_query = format_query query params in
   execute' conn ~query ~params ~formatted_query
 
+let execute_multi_result ?params conn query =
+  execute_multi_result' ?params conn query ~f:(fun result_set ->
+    IterLabels.map result_set ~f:Iter.to_list
+    |> Iter.to_list)
+
+let execute_f ?params ~f conn query =
+  execute_multi_result' ?params conn query ~f:(fun result_sets ->
+    let result =
+      IterLabels.head result_sets
+      |> Option.value ~default:IterLabels.empty
+      |> f
+    in
+    match IterLabels.length result_sets with
+    | 0 -> result
+    | n ->
+      failwithf [%here] ~query ?params
+        "Mssql.execute expected one result set but got %d result sets" (n + 1))
+
 let execute ?params conn query =
-  execute_multi_result ?params conn query
-  >>| function
-  | [] -> []
-  | result_set :: [] -> result_set
-  | results ->
-    failwithf [%here] ~query ?params ~results
-      "Mssql.execute expected one result set but got %d result sets"
-      (List.length results)
+  execute_f ?params ~f:Iter.to_list conn query
+
+let execute_iter ?params ~f conn query =
+  execute_f ?params ~f:(IterLabels.iter ~f) conn query
+
+let execute_fold ?params ~init ~f conn query =
+  let acc = ref init in
+  execute_iter ?params conn query ~f:(fun row ->
+    acc := f !acc row)
+  >>| fun () ->
+  !acc
+
+let execute_map ?params ~f conn query =
+  execute_f ?params ~f:(Fn.compose Iter.to_list (IterLabels.map ~f)) conn query
 
 let execute_unit ?params conn query =
   let%map results = execute_multi_result ?params conn query in
@@ -131,7 +156,9 @@ let execute_many ~params conn query =
     List.map params ~f:(format_query query)
     |> String.concat ~sep:";"
   in
-  execute' conn ~query ~params:(List.concat params) ~formatted_query
+  execute' conn ~query ~params:(List.concat params) ~formatted_query ~f:(fun result_set ->
+    IterLabels.map result_set ~f:Iter.to_list
+    |> Iter.to_list)
 
 let begin_transaction conn =
   execute_unit conn "BEGIN TRANSACTION"

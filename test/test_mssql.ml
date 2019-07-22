@@ -171,12 +171,11 @@ let test_in_clause_param () =
     >>= fun () ->
     Mssql.execute_unit db "INSERT INTO #test (id) VALUES ('''')"
     >>= fun () ->
-    Mssql.execute db
+    Mssql.execute_map db
       ~params:Mssql.Param.[ Some (Array [ String "'" ; String "''" ]) ]
-      "SELECT id FROM #test WHERE id IN ($1)")
-  >>| List.map ~f:(fun row -> Row.str row "id")
+      "SELECT id FROM #test WHERE id IN ($1)"
+      ~f:(fun row -> Row.str row "id"))
   >>| ae_sexp [%sexp_of: string option list] [ Some "'" ]
-
 
 let test_multiple_queries_in_execute () =
   Mssql.Test.with_conn (fun db ->
@@ -235,12 +234,9 @@ let test_execute_single_fail () =
 
 let test_order () =
   Mssql.Test.with_conn (fun db ->
-    Mssql.execute db "SELECT 1 AS a UNION ALL SELECT 2 AS a")
-  >>| fun rows ->
-  let values = List.map rows ~f:(fun row ->
-    Row.int row "a")
-  in
-  ae_sexp [%sexp_of: int option list] [ Some 1 ; Some 2 ] values
+    Mssql.execute_map db "SELECT 1 AS a UNION ALL SELECT 2 AS a"
+      ~f:(fun row -> Row.int row "a"))
+  >>|  ae_sexp [%sexp_of: int option list] [ Some 1 ; Some 2 ]
 
 let test_param_parsing () =
   let params = Mssql.Param.([ Some (String "'") ; Some (Int 5)
@@ -363,17 +359,14 @@ let round_trip_tests =
       let params = [ Some param ] in
       let query = sprintf "SELECT CAST($1 AS %s)" type_name in
       Mssql.Test.with_conn (fun db ->
-        Mssql.execute ~params db query)
-      >>| function
-      | [ row ] -> f row
-      | rows ->
-        failwithf !"Expected one row but got %{sexp: Mssql.Row.t list}" rows ())
+        Mssql.execute_single ~params db query)
+      >>| (fun o -> Option.value_exn o ~message:"Expected one row but got 0")
+      >>| f)
 
 let test_execute_many () =
   let expect =
     List.init 100 ~f:(fun i -> [ Some i ])
-  in
-  let params =
+  and params =
     List.init 100 ~f:(fun i -> Mssql.Param.([ Some (Int i) ]))
   in
   Mssql.Test.with_conn (fun db ->
@@ -396,9 +389,9 @@ let test_concurrent_queries () =
       let vals = List.init n ~f:(fun _ -> Random.int 10000) in
       let expect = List.map vals ~f:Option.some in
       let params = List.map vals ~f:(fun n -> Some (Mssql.Param.Int n)) in
-      Mssql.execute ~params db query
-      >>| List.map ~f:(fun row ->
-        Row.int row "")
+      Mssql.execute_map ~params db query
+        ~f:(fun row ->
+          Row.int row "")
       >>| ae_sexp [%sexp_of: int option list] expect))
 
 let test_connection_pool_concurrency () =
@@ -416,8 +409,7 @@ let test_connection_pool_concurrency () =
       params, expect)
     |> Deferred.List.iter ~how:`Parallel ~f:(fun (params, expect) ->
       Mssql.Pool.with_conn pool (fun db ->
-        Mssql.execute ~params db query
-        >>| List.map ~f:(fun row ->
+        Mssql.execute_map ~params db query ~f:(fun row ->
           Row.int row "")
         >>| ae_sexp [%sexp_of: int option list] expect)))
 
@@ -478,8 +470,7 @@ let test_auto_rollback () =
       raise Caml.Not_found))
   >>= function
   | Error Caml.Not_found ->
-    Mssql.execute db "SELECT id FROM #test"
-    >>| List.map ~f:Mssql.Row.to_alist
+    Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
     >>| ae_sexp [%sexp_of: (string * string) list list] expect
   | _ -> assert false
 
@@ -492,8 +483,7 @@ let test_commit () =
   let%bind () = Mssql.begin_transaction db in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (2)" in
   let%bind () = Mssql.commit db in
-  Mssql.execute db "SELECT id FROM #test"
-  >>| List.map ~f:Mssql.Row.to_alist
+  Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
 let test_auto_commit () =
@@ -505,8 +495,7 @@ let test_auto_commit () =
   Mssql.with_transaction db (fun db ->
     Mssql.execute_unit db "INSERT INTO #test VALUES (2)")
   >>= fun () ->
-  Mssql.execute db "SELECT id FROM #test"
-  >>| List.map ~f:Mssql.Row.to_alist
+  Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
 (* in-progress transactions should be rolled back if not commited when a
@@ -524,9 +513,8 @@ let test_pool_auto_rollback () =
   (* FIXME: If we ever fully reset connections properly, this temporary table
      won't exist *)
   Mssql.Pool.with_conn pool begin fun db ->
-    Mssql.execute db "SELECT id FROM #test"
+    Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
   end
-  >>| List.map ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
 let test_other_execute_during_transaction () =

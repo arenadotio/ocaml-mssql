@@ -27,6 +27,10 @@ val with_conn
 *)
 val execute : ?params:Db_field.t option list -> t -> string -> Row.t list Deferred.t
 
+val execute_map : ?params:Db_field.t option list -> f:(Row.t -> 'a) -> t -> string -> 'a list Deferred.t
+val execute_iter : ?params:Db_field.t option list -> f:(Row.t -> unit) -> t -> string -> unit Deferred.t
+val execute_fold : ?params:Db_field.t option list -> init:'a -> f:('a -> Row.t -> 'a) -> t -> string -> 'a Deferred.t
+
 (** Like [execute] but asserts that the result set will be empty. *)
 val execute_unit : ?params:Db_field.t option list -> t -> string -> unit Deferred.t
 
