@@ -41,28 +41,6 @@ let sequencer_enqueue t f =
     | _ ->
       Throttle.enqueue conn f
 
-let run_query ~month_offset t query =
-  Logger.debug_in_thread !"Executing query: %s" query;
-  Dblib.cancel t;
-  Dblib.sqlexec t query;
-  let result_sets = ref [] in
-  while Dblib.results t do
-    let colnames =
-      Dblib.numcols t
-      |> List.range 0
-      |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
-    and rows = ref [] in
-    try
-      while true do
-        let row = Dblib.nextrow t in
-        let row = Row.create_exn ~month_offset ~colnames row in
-        rows := (row :: !rows)
-      done
-    with Caml.Not_found ->
-      result_sets := (List.rev !rows) :: !result_sets
-  done;
-  List.rev !result_sets
-
 let format_query query params =
   let params_formatted =
     List.map params ~f:Db_field.to_string_escaped
@@ -92,8 +70,27 @@ let format_query query params =
 let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) =
   sequencer_enqueue t @@ fun conn ->
   In_thread.run (fun () ->
+    Logger.debug !"Executing query: %s" formatted_query;
     Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
-      run_query ~month_offset conn formatted_query))
+      Dblib.cancel conn;
+      Dblib.sqlexec conn formatted_query;
+      let result_sets = ref [] in
+      while Dblib.results conn do
+        let colnames =
+          Dblib.numcols conn
+          |> List.range 0
+          |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
+        and rows = ref [] in
+        try
+          while true do
+            let row = Dblib.nextrow conn in
+            let row = Row.create_exn ~month_offset ~colnames row in
+            rows := (row :: !rows)
+          done
+        with Caml.Not_found ->
+          result_sets := (List.rev !rows) :: !result_sets
+      done;
+      List.rev !result_sets))
 
 let execute_multi_result ?(params=[]) conn query =
   let formatted_query = format_query query params in
