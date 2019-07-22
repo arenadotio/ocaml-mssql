@@ -43,33 +43,25 @@ let sequencer_enqueue t f =
 
 let run_query ~month_offset t query =
   Logger.debug_in_thread !"Executing query: %s" query;
-  let colnames t =
-    Dblib.numcols t
-    |> List.range 0
-    |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
-  in
   Dblib.cancel t;
   Dblib.sqlexec t query;
-  let rec result_set_loop result_sets =
-    match Dblib.results t with
-    | true ->
-      let colnames = colnames t in
-      let rec loop rows colnames =
-        Result.try_with (fun () -> Dblib.nextrow t)
-        |> function
-        | Ok row ->
-          let row = Row.create_exn ~month_offset ~colnames row in
-          loop (row :: rows) colnames
-        | Error Caml.Not_found ->
-          List.rev rows :: result_sets
-          |> result_set_loop
-        | Error e -> raise e
-      in
-      loop [] colnames
-    | false -> result_sets
-  in
-  result_set_loop []
-  |> List.rev
+  let result_sets = ref [] in
+  while Dblib.results t do
+    let colnames =
+      Dblib.numcols t
+      |> List.range 0
+      |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
+    and rows = ref [] in
+    try
+      while true do
+        let row = Dblib.nextrow t in
+        let row = Row.create_exn ~month_offset ~colnames row in
+        rows := (row :: !rows)
+      done
+    with Caml.Not_found ->
+      result_sets := (List.rev !rows) :: !result_sets
+  done;
+  List.rev !result_sets
 
 let format_query query params =
   let params_formatted =
