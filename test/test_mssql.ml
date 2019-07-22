@@ -165,6 +165,19 @@ let test_select_and_convert () =
     ae_sexp [%sexp_of: bool option] None (Row.bool row col)
   | _ -> assert false
 
+let test_in_clause_param () =
+  Mssql.Test.with_conn (fun db ->
+    Mssql.execute_unit db "CREATE TABLE #test (id varchar)"
+    >>= fun () ->
+    Mssql.execute_unit db "INSERT INTO #test (id) VALUES ('''')"
+    >>= fun () ->
+    Mssql.execute db
+      ~params:Mssql.Param.[ Some (Array [ String "'" ; String "''" ]) ]
+      "SELECT id FROM #test WHERE id IN ($1)")
+  >>| List.map ~f:(fun row -> Row.str row "id")
+  >>| ae_sexp [%sexp_of: string option list] [ Some "'" ]
+
+
 let test_multiple_queries_in_execute () =
   Mssql.Test.with_conn (fun db ->
     Monitor.try_with @@ fun () ->
