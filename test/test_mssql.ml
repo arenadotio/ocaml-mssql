@@ -606,38 +606,32 @@ let test_exception_with_multiple_results () =
     |> Deferred.ignore)
 
 let () =
-  [ "select and convert", test_select_and_convert
-  ; "multiple queries in execute", test_multiple_queries_in_execute
-  ; "multiple queries in execute_multi_result",
-    test_multiple_queries_in_execute_multi_result
-  ; "execute_unit", test_execute_unit
-  ; "execute_unit fail", test_execute_unit_fail
-  ; "execute_single", test_execute_single
-  ; "execute_single fail", test_execute_single_fail
-  ; "test list order", test_order
-  ; "test params", test_param_parsing
-  ; "test param out of range", test_param_out_of_range
-  ; "test execute many", test_execute_many
-  ; "test concurrent queries", test_concurrent_queries
-  ; "test connection pool concurrency", test_connection_pool_concurrency
-  ; "test rollback", test_rollback
-  ; "test auto rollback", test_auto_rollback
-  ; "test commit", test_commit
-  ; "test auto commit", test_auto_commit
-  ; "test pool auto rollback", test_pool_auto_rollback
-  ; "test other execute during transaction", test_other_execute_during_transaction
-  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
-  ; "test exception in callback", test_exception_thrown_in_callback
-  ; "test exception with multiple results", test_exception_with_multiple_results ]
-  @ round_trip_tests
-  @ recoding_tests
-  |> List.map ~f:(fun (name, f) ->
-    name >:: (fun ctx ->
-      try
-        async_test ctx @@ fun () ->
-        f ()
-      with exn ->
-        Monitor.extract_exn exn
-        |> raise))
-  |> test_list
-  |> run_test_tt_main
+  [ "all",
+    [ "select and convert", test_select_and_convert
+    ; "multiple queries in execute", test_multiple_queries_in_execute
+    ; "multiple queries in execute_multi_result",
+      test_multiple_queries_in_execute_multi_result
+    ; "execute_unit", test_execute_unit
+    ; "execute_unit fail", test_execute_unit_fail
+    ; "execute_single", test_execute_single
+    ; "execute_single fail", test_execute_single_fail
+    ; "test list order", test_order
+    ; "test params", test_param_parsing
+    ; "test param out of range", test_param_out_of_range
+    ; "test execute many", test_execute_many
+    ; "test concurrent queries", test_concurrent_queries
+    ; "test connection pool concurrency", test_connection_pool_concurrency
+    ; "test rollback", test_rollback
+    ; "test auto rollback", test_auto_rollback
+    ; "test commit", test_commit
+    ; "test auto commit", test_auto_commit
+    ; "test pool auto rollback", test_pool_auto_rollback
+    ; "test other execute during transaction", test_other_execute_during_transaction
+    ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+    ; "test exception in callback", test_exception_thrown_in_callback
+    ; "test exception with multiple results", test_exception_with_multiple_results ]
+    @ round_trip_tests
+    @ recoding_tests
+    |> List.map ~f:(fun (name, f) ->
+      Alcotest_async.test_case name `Quick f) ]
+  |> Alcotest.run "mssql"
