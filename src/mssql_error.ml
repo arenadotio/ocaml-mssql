@@ -2,12 +2,12 @@ open Core_kernel
 
 type t =
   { msg : string
-  ; reraised_exn : Exn.t sexp_option
+  ; reraised_exn : Exn.t option [@sexp.option]
   ; here : Source_code_position.t
-  ; query : string sexp_option
-  ; params : Db_field.t option sexp_list
-  ; formatted_query : string sexp_option
-  ; results : Row.t list sexp_list }
+  ; query : string option [@sexp.option]
+  ; params : Db_field.t option list [@sexp.list]
+  ; formatted_query : string option [@sexp.option]
+  ; results : Row.t list list [@sexp.list] }
 [@@deriving sexp_of]
 
 exception Mssql_error of t
