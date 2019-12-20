@@ -128,7 +128,7 @@ let to_string_escaped =
     let first = ref true in
     for i = 0 to String.length s - 1 do
       let c = String.get s i in
-      if c = '\x00' then begin
+      if Char.equal c '\x00' then begin
         if !in_str then begin
           Buffer.add_char buf '\'';
           in_str := false;
@@ -144,7 +144,7 @@ let to_string_escaped =
           Buffer.add_char buf '\'';
           in_str := true;
         end;
-        if c = '\'' then
+        if Char.equal c '\'' then
           Buffer.add_string buf "''"
         else
           Buffer.add_char buf c;
@@ -231,10 +231,10 @@ let bool ?column =
        make sense *)
     | Int i when i = 0 -> false
     | Int i when i = 1 -> true
-    | Int32 i when i = Int32.zero -> false
-    | Int32 i when i = Int32.one -> true
-    | Int64 i when i = Int64.zero -> false
-    | Int64 i when i = Int64.one -> true
+    | Int32 i when Int32.equal i Int32.zero -> false
+    | Int32 i when Int32.equal i Int32.one -> true
+    | Int64 i when Int64.equal i Int64.zero -> false
+    | Int64 i when Int64.equal i Int64.one -> true
     | _ -> assert false)
 
 let str ?column =

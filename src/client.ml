@@ -234,7 +234,7 @@ let init_conn c =
      SET ANSI_WARNINGS ON
      SET ANSI_PADDING ON
      SET CONCAT_NULL_YIELDS_NULL ON"
-  |> Deferred.ignore
+  |> Deferred.ignore_m
 
 let close ({ conn ; _ } as t) =
   match conn with
