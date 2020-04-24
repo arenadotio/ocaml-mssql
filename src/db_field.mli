@@ -1,6 +1,7 @@
 (** A wrapper for Mssql data types.  Use this instead of format strings
     to protect yourself from SQL injection *)
 open Core
+
 open Freetds
 
 type t =
@@ -16,10 +17,8 @@ type t =
 [@@deriving sexp]
 
 val of_data : month_offset:int -> Dblib.data -> t option
-
 val to_string : t option -> string
 val to_string_escaped : t option -> string
-
 val bignum : ?column:string -> t -> Bignum.t
 val float : ?column:string -> t -> float
 val int : ?column:string -> t -> int
