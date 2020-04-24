@@ -11,16 +11,16 @@ type t =
   ; query : string option
   ; params : Db_field.t option list
   ; formatted_query : string option
-  ; results : Row.t list list }
+  ; results : Row.t list list
+  }
 [@@deriving sexp_of]
 
-exception Mssql_error of t
-[@@deriving sexp_of]
+exception Mssql_error of t [@@deriving sexp_of]
 
 (** [failwith [%here] msg] raises a [Mssql_error] with the given options and
     message *)
 val failwith
-  : ?query:string
+  :  ?query:string
   -> ?params:Db_field.t option list
   -> ?formatted_query:string
   -> ?results:Row.t list list
@@ -33,7 +33,7 @@ val failwith
 (** [failwithf [%here] "%..." msg] raises a [Mssql_error] with the given
     options and a sprintf formatted message *)
 val failwithf
-  : ?query:string
+  :  ?query:string
   -> ?params:Db_field.t option list
   -> ?formatted_query:string
   -> ?results:Row.t list list
@@ -50,7 +50,7 @@ val failwithf
     directly, to make exceptions more readable -- although we also set
     [reraised_exn] so the original info is all there) *)
 val with_wrap
-  : ?query:string
+  :  ?query:string
   -> ?params:Db_field.t option list
   -> ?formatted_query:string
   -> ?results:Row.t list list
