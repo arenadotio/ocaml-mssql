@@ -53,13 +53,6 @@ jobs:
           name: Test
           command: opam config exec -- make coverage
       - run:
-          name: Install ocveralls
-          command: opam install -y ocveralls
-      - run:
           name: Upload coverage report
           command: |
-            cd _build/default
-            shopt -s globstar
-            if [[ -n "$COVERALLS_REPO_TOKEN" ]]; then
-              opam config exec -- ocveralls **/bisect*.out --send --repo_token $COVERALLS_REPO_TOKEN --git
-            fi
+            opam exec -- bisect-ppx-report send-to Coveralls
