@@ -42,7 +42,7 @@ let test_select_and_convert () =
   >>| function
   | [ row ] ->
     let assert_raises msg f =
-      match Or_error.try_with f with
+      match Or_error.try_with ~backtrace:true f with
       | Ok _ -> assert_failure ("Expected exception for conversion: " ^ msg)
       | Error _ -> ()
     in
@@ -165,9 +165,21 @@ let test_select_and_convert () =
     ae_sexp [%sexp_of: bool option] None (Row.bool row col)
   | _ -> assert false
 
+let test_in_clause_param () =
+  Mssql.Test.with_conn (fun db ->
+    Mssql.execute_unit db "CREATE TABLE #test (id varchar)"
+    >>= fun () ->
+    Mssql.execute_unit db "INSERT INTO #test (id) VALUES ('''')"
+    >>= fun () ->
+    Mssql.execute_map db
+      ~params:Mssql.Param.[ Some (Array [ String "'" ; String "''" ]) ]
+      "SELECT id FROM #test WHERE id IN ($1)"
+      ~f:(fun row -> Row.str row "id"))
+  >>| ae_sexp [%sexp_of: string option list] [ Some "'" ]
+
 let test_multiple_queries_in_execute () =
   Mssql.Test.with_conn (fun db ->
-    Monitor.try_with @@ fun () ->
+    Monitor.try_with ~here:[%here] @@ fun () ->
     Mssql.execute db "SELECT 1; SELECT 2")
   >>| Result.is_error
   >>| assert_bool "Multiple queries in execute should throw exception but didn't"
@@ -194,7 +206,7 @@ let test_execute_unit_fail () =
     >>= fun () ->
     Mssql.execute_unit db "INSERT INTO #test (id) VALUES (1)"
     >>= fun () ->
-    Monitor.try_with @@ fun () ->
+    Monitor.try_with ~here:[%here] @@ fun () ->
     Mssql.execute_unit db "SELECT id FROM #test")
   >>| Result.is_error
   >>| assert_bool "execute_unit with a SELECT should throw but didn't"
@@ -214,7 +226,7 @@ let test_execute_single_fail () =
     >>= fun () ->
     Mssql.execute_unit db "INSERT INTO #test (id) VALUES (1), (1)"
     >>= fun () ->
-    Monitor.try_with @@ fun () ->
+    Monitor.try_with ~here:[%here] @@ fun () ->
     Mssql.execute_single db "SELECT id FROM #test WHERE id > 0")
   >>| Result.is_error
   >>| assert_bool "execute_single returning multiple rows should throw \
@@ -222,12 +234,9 @@ let test_execute_single_fail () =
 
 let test_order () =
   Mssql.Test.with_conn (fun db ->
-    Mssql.execute db "SELECT 1 AS a UNION ALL SELECT 2 AS a")
-  >>| fun rows ->
-  let values = List.map rows ~f:(fun row ->
-    Row.int row "a")
-  in
-  ae_sexp [%sexp_of: int option list] [ Some 1 ; Some 2 ] values
+    Mssql.execute_map db "SELECT 1 AS a UNION ALL SELECT 2 AS a"
+      ~f:(fun row -> Row.int row "a"))
+  >>|  ae_sexp [%sexp_of: int option list] [ Some 1 ; Some 2 ]
 
 let test_param_parsing () =
   let params = Mssql.Param.([ Some (String "'") ; Some (Int 5)
@@ -270,7 +279,7 @@ let test_param_out_of_range () =
        $2 AS b",
       "Query has param $1 but there are only 0 params." ]
     |> Deferred.List.iter ~f:(fun (expect_params, expect_query, expect_msg) ->
-      Monitor.try_with ~extract_exn:true (fun () ->
+      Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
         Mssql.execute ?params:expect_params db expect_query
         >>| ignore)
       >>| function
@@ -350,17 +359,14 @@ let round_trip_tests =
       let params = [ Some param ] in
       let query = sprintf "SELECT CAST($1 AS %s)" type_name in
       Mssql.Test.with_conn (fun db ->
-        Mssql.execute ~params db query)
-      >>| function
-      | [ row ] -> f row
-      | rows ->
-        failwithf !"Expected one row but got %{sexp: Mssql.Row.t list}" rows ())
+        Mssql.execute_single ~params db query)
+      >>| (fun o -> Option.value_exn o ~message:"Expected one row but got 0")
+      >>| f)
 
 let test_execute_many () =
   let expect =
     List.init 100 ~f:(fun i -> [ Some i ])
-  in
-  let params =
+  and params =
     List.init 100 ~f:(fun i -> Mssql.Param.([ Some (Int i) ]))
   in
   Mssql.Test.with_conn (fun db ->
@@ -383,30 +389,10 @@ let test_concurrent_queries () =
       let vals = List.init n ~f:(fun _ -> Random.int 10000) in
       let expect = List.map vals ~f:Option.some in
       let params = List.map vals ~f:(fun n -> Some (Mssql.Param.Int n)) in
-      Mssql.execute ~params db query
-      >>| List.map ~f:(fun row ->
-        Row.int row "")
-      >>| ae_sexp [%sexp_of: int option list] expect))
-
-let test_connection_pool_concurrency () =
-  let n = 10 in
-  let query =
-    List.range 1 (n + 1)
-    |> List.map ~f:(sprintf "SELECT $%d")
-    |> String.concat ~sep:" UNION ALL "
-  in
-  Mssql.Test.with_pool ~max_connections:n (fun pool ->
-    List.init n ~f:(fun _ ->
-      let vals = List.init n ~f:(fun _ -> Random.int 10000) in
-      let expect = List.map vals ~f:Option.some in
-      let params = List.map vals ~f:(fun n -> Some (Mssql.Param.Int n)) in
-      params, expect)
-    |> Deferred.List.iter ~how:`Parallel ~f:(fun (params, expect) ->
-      Mssql.Pool.with_conn pool (fun db ->
-        Mssql.execute ~params db query
-        >>| List.map ~f:(fun row ->
+      Mssql.execute_map ~params db query
+        ~f:(fun row ->
           Row.int row "")
-        >>| ae_sexp [%sexp_of: int option list] expect)))
+      >>| ae_sexp [%sexp_of: int option list] expect))
 
 let recoding_tests =
   (* ç ß are different in CP1252 vs UTF-8; ∑ has no conversion *)
@@ -459,14 +445,13 @@ let test_auto_rollback () =
   Mssql.Test.with_conn @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
-  Monitor.try_with ~extract_exn:true (fun () ->
+  Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
     Mssql.with_transaction db (fun db ->
       let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (2)" in
       raise Caml.Not_found))
   >>= function
   | Error Caml.Not_found ->
-    Mssql.execute db "SELECT id FROM #test"
-    >>| List.map ~f:Mssql.Row.to_alist
+    Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
     >>| ae_sexp [%sexp_of: (string * string) list list] expect
   | _ -> assert false
 
@@ -479,8 +464,7 @@ let test_commit () =
   let%bind () = Mssql.begin_transaction db in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (2)" in
   let%bind () = Mssql.commit db in
-  Mssql.execute db "SELECT id FROM #test"
-  >>| List.map ~f:Mssql.Row.to_alist
+  Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
 let test_auto_commit () =
@@ -492,28 +476,7 @@ let test_auto_commit () =
   Mssql.with_transaction db (fun db ->
     Mssql.execute_unit db "INSERT INTO #test VALUES (2)")
   >>= fun () ->
-  Mssql.execute db "SELECT id FROM #test"
-  >>| List.map ~f:Mssql.Row.to_alist
-  >>| ae_sexp [%sexp_of: (string * string) list list] expect
-
-(* in-progress transactions should be rolled back if not commited when a
-   connection returns to the pool *)
-let test_pool_auto_rollback () =
-  let expect = [ [ "id", "1" ] ] in
-  Mssql.Test.with_pool ~max_connections:1 @@ fun pool ->
-  Mssql.Pool.with_conn pool begin fun db ->
-    let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
-    let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
-    let%bind () = Mssql.begin_transaction db in
-    Mssql.execute_unit db "INSERT INTO #test VALUES (2)"
-  end
-  >>= fun () ->
-  (* FIXME: If we ever fully reset connections properly, this temporary table
-     won't exist *)
-  Mssql.Pool.with_conn pool begin fun db ->
-    Mssql.execute db "SELECT id FROM #test"
-  end
-  >>| List.map ~f:Mssql.Row.to_alist
+  Mssql.execute_map db "SELECT id FROM #test" ~f:Mssql.Row.to_alist
   >>| ae_sexp [%sexp_of: (string * string) list list] expect
 
 let test_other_execute_during_transaction () =
@@ -539,7 +502,7 @@ let test_prevent_transaction_deadlock () =
   in
   Mssql.Test.with_conn @@ fun db ->
   Mssql.with_transaction db (fun _ ->
-    Monitor.try_with_or_error (fun () ->
+    Monitor.try_with_or_error ~here:[%here] (fun () ->
       Mssql.execute_unit db "WAITFOR DELAY '00:00:00'")
     >>| function
     | Error err ->
@@ -551,7 +514,7 @@ let test_prevent_transaction_deadlock () =
 
 let test_exception_thrown_in_callback () =
   Mssql.Test.with_conn (fun db ->
-    Monitor.try_with ~extract_exn:true (fun () ->
+    Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
       Mssql.execute db "\x81")
     >>| begin function
     | Error exn ->
@@ -564,14 +527,14 @@ let test_exception_thrown_in_callback () =
     end
     >>= fun () ->
     Mssql.execute db "SELECT 1"
-    |> Deferred.ignore)
+    |> Deferred.ignore_m)
 
 let test_exception_with_multiple_results () =
   (* Ensure that our code properly cleans up existing result sets before a new
      query. Before D13534, we sometimes saw:
      "Attempt to initiate a new Adaptive Server operation with results pending" *)
   Mssql.Test.with_conn (fun db ->
-    Monitor.try_with ~extract_exn:true (fun () ->
+    Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
       Mssql.execute db {|
         CREATE TABLE #test (id INT PRIMARY KEY);
         INSERT INTO #test (id) VALUES (1);
@@ -590,41 +553,59 @@ let test_exception_with_multiple_results () =
     >>= fun () ->
     (* if our cleanup code works right, this won't throw an exception *)
     Mssql.execute db "SELECT 1"
-    |> Deferred.ignore)
+    |> Deferred.ignore_m)
+
+let test_execute_pipe () =
+  Mssql.Test.with_conn (fun db ->
+    Mssql.execute_unit db "CREATE TABLE #test (id int)"
+    >>= fun () ->
+    let values =
+      List.init 100 ~f:Fn.id
+    in
+    Deferred.List.iter values ~f:(fun value ->
+      Mssql.execute_unit ~params:[Some (Int value) ] db "INSERT INTO #test (id) VALUES ($1)")
+    >>= fun () ->
+    Mssql.execute_pipe db "SELECT id FROM #test ORDER BY id"
+    |> Pipe.map ~f:(fun row -> Row.int_exn row "id")
+    |> Pipe.to_list
+    >>| ae_sexp [%sexp_of: int list] values)
+  >>| ignore
+
+let test_execute_pipe_error () =
+  Mssql.Test.with_conn (fun db ->
+    Monitor.try_with ~here:[%here] @@ fun () ->
+    Mssql.execute_unit db "lkmsdflkmdsf")
+  >>| Result.is_error
+  >>| assert_bool "Invalid query should return an error"
 
 let () =
-  [ "select and convert", test_select_and_convert
-  ; "multiple queries in execute", test_multiple_queries_in_execute
-  ; "multiple queries in execute_multi_result",
-    test_multiple_queries_in_execute_multi_result
-  ; "execute_unit", test_execute_unit
-  ; "execute_unit fail", test_execute_unit_fail
-  ; "execute_single", test_execute_single
-  ; "execute_single fail", test_execute_single_fail
-  ; "test list order", test_order
-  ; "test params", test_param_parsing
-  ; "test param out of range", test_param_out_of_range
-  ; "test execute many", test_execute_many
-  ; "test concurrent queries", test_concurrent_queries
-  ; "test connection pool concurrency", test_connection_pool_concurrency
-  ; "test rollback", test_rollback
-  ; "test auto rollback", test_auto_rollback
-  ; "test commit", test_commit
-  ; "test auto commit", test_auto_commit
-  ; "test pool auto rollback", test_pool_auto_rollback
-  ; "test other execute during transaction", test_other_execute_during_transaction
-  ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
-  ; "test exception in callback", test_exception_thrown_in_callback
-  ; "test exception with multiple results", test_exception_with_multiple_results ]
-  @ round_trip_tests
-  @ recoding_tests
-  |> List.map ~f:(fun (name, f) ->
-    name >:: (fun ctx ->
-      try
-        async_test ctx @@ fun () ->
-        f ()
-      with exn ->
-        Monitor.extract_exn exn
-        |> raise))
-  |> test_list
-  |> run_test_tt_main
+  Thread_safe.block_on_async_exn @@ fun () ->
+  [ "all",
+    [ "select and convert", test_select_and_convert
+    ; "multiple queries in execute", test_multiple_queries_in_execute
+    ; "multiple queries in execute_multi_result",
+      test_multiple_queries_in_execute_multi_result
+    ; "execute_unit", test_execute_unit
+    ; "execute_unit fail", test_execute_unit_fail
+    ; "execute_single", test_execute_single
+    ; "execute_single fail", test_execute_single_fail
+    ; "test list order", test_order
+    ; "test params", test_param_parsing
+    ; "test param out of range", test_param_out_of_range
+    ; "test execute many", test_execute_many
+    ; "test concurrent queries", test_concurrent_queries
+    ; "test rollback", test_rollback
+    ; "test auto rollback", test_auto_rollback
+    ; "test commit", test_commit
+    ; "test auto commit", test_auto_commit
+    ; "test other execute during transaction", test_other_execute_during_transaction
+    ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+    ; "test exception in callback", test_exception_thrown_in_callback
+    ; "test exception with multiple results", test_exception_with_multiple_results
+    ; "test execute_pipe", test_execute_pipe
+    ; "test execute_pipe_error", test_execute_pipe_error ]
+    @ round_trip_tests
+    @ recoding_tests
+    |> List.map ~f:(fun (name, f) ->
+      Alcotest_async.test_case name `Quick f) ]
+  |> Alcotest_async.run "mssql"

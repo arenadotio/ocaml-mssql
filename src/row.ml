@@ -2,7 +2,7 @@ open Core
 
 type t = Db_field.t option String.Map.t [@@deriving sexp_of]
 
-let create_exn ~month_offset row colnames =
+let create_exn ~month_offset ~colnames row =
   List.map row ~f:(Db_field.of_data ~month_offset)
   |> List.zip_exn colnames
   |> String.Map.of_alist_exn

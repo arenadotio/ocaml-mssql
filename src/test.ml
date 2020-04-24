@@ -16,8 +16,3 @@ let params =
 let with_conn f =
   let host, db, user, password, port = Lazy.force params in
   Client.with_conn ~host ~db ~user ~password ?port f
-
-let with_pool ?max_connections f =
-  let host, db, user, password, port = Lazy.force params in
-  Client.Pool.with_pool ~host ~db ~user ~password ?port ?max_connections f
-

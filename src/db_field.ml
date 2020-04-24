@@ -10,6 +10,7 @@ type t =
   | Int64 of int64
   | String of string
   | Date of Time.t
+  | Array of t list
 [@@deriving sexp]
 
 (** [recode ~src ~dst str] decodes [str] from the character set given by [~src],
@@ -94,7 +95,7 @@ let of_data ~month_offset data =
     Some (Date datetime)
   | NULL -> None
 
-let to_string ~quote_string =
+let rec to_string ~quote_string =
   function
   | None -> "NULL"
   | Some p ->
@@ -108,6 +109,11 @@ let to_string ~quote_string =
     | String s -> s |> quote_string
     | Date t ->
       Time.format ~zone:Time.Zone.utc t "%Y-%m-%dT%H:%M:%S" |> quote_string
+    | Array l ->
+      List.map l ~f:(fun p ->
+        Some p
+        |> to_string ~quote_string)
+      |> String.concat ~sep:", "
 
 let to_string_escaped =
   (* Quote the string by replacing ' with '' and null with CHAR(0). This
@@ -246,7 +252,8 @@ let str ?column =
     | Int32 i -> Int32.to_string i
     | Int64 i -> Int64.to_string i
     | String s -> s
-    | Date t -> Time.to_string_abs ~zone:Time.Zone.utc t)
+    | Date t -> Time.to_string_abs ~zone:Time.Zone.utc t
+    | Array _ -> assert false)
 
 let date ?column =
   with_error_msg ?column "date" ~f:(function

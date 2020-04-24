@@ -1,6 +1,7 @@
 (executables
  (names test_mssql)
- (libraries mssql oUnit)
+ (public_names test_mssql.exe)
+ (libraries alcotest-async mssql oUnit)
  (preprocess (pps ppx_jane)))
 
 (alias

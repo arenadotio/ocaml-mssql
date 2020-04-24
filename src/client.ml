@@ -41,36 +41,6 @@ let sequencer_enqueue t f =
     | _ ->
       Throttle.enqueue conn f
 
-let run_query ~month_offset t query =
-  Logger.debug_in_thread !"Executing query: %s" query;
-  let colnames t =
-    Dblib.numcols t
-    |> List.range 0
-    |> List.map ~f:(fun i -> Dblib.colname t (i + 1))
-  in
-  Dblib.cancel t;
-  Dblib.sqlexec t query;
-  let rec result_set_loop result_sets =
-    match Dblib.results t with
-    | true ->
-      let colnames = colnames t in
-      let rec loop rows colnames =
-        Result.try_with (fun () -> Dblib.nextrow t)
-        |> function
-        | Ok row ->
-          let row = Row.create_exn ~month_offset row colnames in
-          loop (row :: rows) colnames
-        | Error Caml.Not_found ->
-          List.rev rows :: result_sets
-          |> result_set_loop
-        | Error e -> raise e
-      in
-      loop [] colnames
-    | false -> result_sets
-  in
-  result_set_loop []
-  |> List.rev
-
 let format_query query params =
   let params_formatted =
     List.map params ~f:Db_field.to_string_escaped
@@ -97,25 +67,91 @@ let format_query query params =
       Array.get params_formatted i)
   |> String.concat ~sep:""
 
-let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) =
+let execute' ?params ~query ~formatted_query ({ month_offset ; _ } as t) ~f =
   sequencer_enqueue t @@ fun conn ->
-  In_thread.run (fun () ->
-    Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
-      run_query ~month_offset conn formatted_query))
+  In_thread.run @@ fun () ->
+  Logger.debug !"Executing query: %s" formatted_query;
+  Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
+    Dblib.cancel conn;
+    Dblib.sqlexec conn formatted_query;
+    Iter.from_fun (fun () ->
+      if Dblib.results conn then
+        let colnames =
+          Dblib.numcols conn
+          |> List.range 0
+          |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
+        in
+        Iter.from_fun (fun () ->
+          try
+            let row = Dblib.nextrow conn in
+            let row = Row.create_exn ~month_offset ~colnames row in
+            Some row
+          with Caml.Not_found ->
+            None)
+        |> Option.some
+      else
+        None)
+    |> f)
 
-let execute_multi_result ?(params=[]) conn query =
+let execute_multi_result' ?(params=[]) conn query =
   let formatted_query = format_query query params in
   execute' conn ~query ~params ~formatted_query
 
+let execute_multi_result ?params conn query =
+  execute_multi_result' ?params conn query ~f:(fun result_set ->
+    IterLabels.map result_set ~f:Iter.to_list
+    |> Iter.to_list)
+
+(* Execute [f iter] for the first result set iterator and throw an exception if there is more than
+   one result set *)
+let execute_f' ?params ~f conn query =
+  execute_multi_result' ?params conn query ~f:(fun result_sets ->
+    let result =
+      let input =
+        IterLabels.head result_sets
+        |> Option.value ~default:IterLabels.empty
+      in
+      Thread_safe.block_on_async_exn (fun () ->
+        f input)
+    in
+    match IterLabels.length result_sets with
+    | 0 -> result
+    | n ->
+      failwithf [%here] ~query ?params
+        "Mssql.execute expected one result set but got %d result sets" (n + 1))
+
+let execute_f ?params ~f conn query =
+  execute_f' ?params conn query ~f:(fun result_set ->
+    f result_set
+    |> return)
+
 let execute ?params conn query =
-  execute_multi_result ?params conn query
-  >>| function
-  | [] -> []
-  | result_set :: [] -> result_set
-  | results ->
-    failwithf [%here] ~query ?params ~results
-      "Mssql.execute expected one result set but got %d result sets"
-      (List.length results)
+  execute_f ?params ~f:Iter.to_list conn query
+
+let execute_iter ?params ~f conn query =
+  execute_f ?params ~f:(IterLabels.iter ~f) conn query
+
+let execute_fold ?params ~init ~f conn query =
+  let acc = ref init in
+  execute_iter ?params conn query ~f:(fun row ->
+    acc := f !acc row)
+  >>| fun () ->
+  !acc
+
+let execute_map ?params ~f conn query =
+  execute_f ?params ~f:(Fn.compose Iter.to_list (IterLabels.map ~f)) conn query
+
+let execute_pipe ?params conn query =
+  Pipe.create_reader ~close_on_exception:false @@ fun writer ->
+  Monitor.protect (fun () ->
+    execute_f' ?params conn query ~f:(fun rows ->
+      IterLabels.fold rows ~init:Deferred.unit ~f:(fun acc row ->
+        acc
+        >>= fun () ->
+        Pipe.write_if_open writer row)))
+    ~finally:(fun () ->
+      Pipe.close writer;
+      Deferred.unit)
 
 let execute_unit ?params conn query =
   let%map results = execute_multi_result ?params conn query in
@@ -142,7 +178,9 @@ let execute_many ~params conn query =
     List.map params ~f:(format_query query)
     |> String.concat ~sep:";"
   in
-  execute' conn ~query ~params:(List.concat params) ~formatted_query
+  execute' conn ~query ~params:(List.concat params) ~formatted_query ~f:(fun result_set ->
+    IterLabels.map result_set ~f:Iter.to_list
+    |> Iter.to_list)
 
 let begin_transaction conn =
   execute_unit conn "BEGIN TRANSACTION"
@@ -180,7 +218,7 @@ let with_transaction' t f =
 
 let with_transaction t f =
   with_transaction' t (fun t ->
-    Monitor.try_with (fun () ->
+    Monitor.try_with ~here:[%here] (fun () ->
       f t))
   >>| function
   | Ok res ->
@@ -190,7 +228,7 @@ let with_transaction t f =
 
 let with_transaction_or_error t f =
   with_transaction' t (fun t ->
-    Monitor.try_with_join_or_error (fun () ->
+    Monitor.try_with_join_or_error ~here:[%here] (fun () ->
       f t))
 
 let rec connect ?(tries=5) ~host ~db ~user ~password ?port () =
@@ -218,7 +256,7 @@ let rec connect ?(tries=5) ~host ~db ~user ~password ?port () =
     if tries = 0 then
       raise exn
     else
-      Logger.info_in_thread "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
+      Logger.info "Retrying Mssql.connect due to exn: %s" (Exn.to_string exn);
     connect ~tries:(tries-1) ~host ~db ~user ~password ?port ()
 
 (* These need to be on for some reason, eg: DELETE failed because the following
@@ -234,7 +272,7 @@ let init_conn c =
      SET ANSI_WARNINGS ON
      SET ANSI_PADDING ON
      SET CONCAT_NULL_YIELDS_NULL ON"
-  |> Deferred.ignore
+  |> Deferred.ignore_m
 
 let close ({ conn ; _ } as t) =
   match conn with
@@ -255,7 +293,7 @@ let create ~host ~db ~user ~password ?port () =
     ; transaction_id = next_transaction_id ()
     ; month_offset = 0 }
   in
-  Monitor.try_with begin fun () ->
+  Monitor.try_with ~here:[%here] begin fun () ->
     (* Since FreeTDS won't tell us if it was compiled with 0-based month or
        1-based months, make a query to check when we first startup and keep
        track of the offset so we can correct it. *)
@@ -293,77 +331,3 @@ let create ~host ~db ~user ~password ?port () =
 let with_conn ~host ~db ~user ~password ?port f =
   let%bind conn = create ~host ~db ~user ~password ?port () in
   Monitor.protect (fun () -> f conn) ~finally:(fun () -> close conn)
-
-(* FIXME: There's a bunch of other stuff we should really reset, but
-   SQL Server doesn't publically expose sp_reset_connect :( *)
-let cleanup_connection conn =
-  execute_unit conn {|
-    IF @@TRANCOUNT > 0
-      ROLLBACK
-  |}
-
-module Pool = struct
-  type p =
-    { make : unit -> t Deferred.t
-    ; connections : t option ref Throttle.t }
-
-  let with_pool ~host ~db ~user ~password ?port ?(max_connections=10) f =
-    let make = create ~host ~db ~user ~password ?port in
-    let connections =
-      List.init max_connections ~f:(fun _ -> ref None)
-      |> Throttle.create_with ~continue_on_error:true
-    in
-    Throttle.at_kill connections (fun conn ->
-      match !conn with
-      | Some conn -> close conn
-      | None -> return ());
-    let%map res = f { make ; connections } in
-    Throttle.kill connections;
-    res
-
-  let with_conn { make ; connections } f =
-    let pool_conn_close conn =
-      match !conn with
-      | Some c ->
-        Monitor.try_with (fun () ->
-          close c)
-        (* Intentionally ignore any errors when closing the broken
-           connection *)
-        >>| fun _ ->
-        conn := None
-      | None -> Deferred.unit
-    in
-    Throttle.enqueue connections (fun conn ->
-      (* Check if the connection is good; close it if it's not *)
-      (match !conn with
-       | Some c ->
-         Monitor.try_with (fun () -> execute c "SELECT 1")
-         >>= (function
-           | Ok _ -> return ()
-           | Error exn ->
-             Exn.to_string exn
-             |> Logger.error "Closing bad MSSQL connection due to exn: %s";
-             pool_conn_close conn)
-       | None -> return ())
-      >>= fun () ->
-      (* Find or open a connection *)
-      let%bind c =
-        match !conn with
-        | Some c -> return c
-        | None ->
-          let%map c = make () in
-          conn := Some c;
-          c
-      in
-      (* Run our actual target function *)
-      Monitor.try_with (fun () ->
-        let%bind res = f c in
-        let%map () = cleanup_connection c in
-        res)
-      >>= function
-      | Ok res -> return res
-      | Error exn ->
-        let backtrace = Caml.Printexc.get_raw_backtrace () in
-        let%map () = pool_conn_close conn in
-        Caml.Printexc.raise_with_backtrace exn backtrace)
-end

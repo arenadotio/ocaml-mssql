@@ -12,6 +12,7 @@ type t =
   | Int64 of int64
   | String of string
   | Date of Time.t
+  | Array of t list
 [@@deriving sexp]
 
 val of_data : month_offset:int -> Dblib.data -> t option
