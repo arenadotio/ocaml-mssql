@@ -1,5 +1,4 @@
 open Core
-open Async
 
 let src = Logs.Src.create "mssql"
 
