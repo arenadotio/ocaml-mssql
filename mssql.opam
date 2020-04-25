@@ -19,13 +19,22 @@ depends: [
   "async"
   "bignum"
   "ppx_jane"
-  "freetds"
-  "iter" {= "1.2"}
+  "iter" {>= "1.2"}
   "ocaml" {>= "4.06.1"}
   "ounit"
   "logs"
   "text" {>= "0.8.0"}
 
   "bisect_ppx" {build & >= "2.0.0"}
-  "dune" {build & >= "1.4"}
+  "dune" { >= "1.11"}
+  "cppo"
+]
+
+depexts: [
+  ["freetds-dev"] {os-distribution = "alpine"}
+  ["freetds-dev"] {os-distribution = "debian"}
+  ["freetds-dev"] {os-distribution = "ubuntu"}
+  ["freetds-devel"] {os-distribution = "fedora"}
+  ["freetds-devel"] {os-family = "opensuse"}
+  ["freetds"] {os = "macos" & os-distribution = "homebrew"}
 ]
