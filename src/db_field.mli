@@ -16,12 +16,7 @@ type t =
   | Array of t list
 [@@deriving sexp]
 
-val of_data
-  :  context:Async_kernel.Execution_context.t
-  -> month_offset:int
-  -> Dblib.data
-  -> t option
-
+val of_data : month_offset:int -> Dblib.data -> t option
 val to_string : t option -> string
 val to_string_escaped : t option -> string
 val bignum : ?column:string -> t -> Bignum.t
