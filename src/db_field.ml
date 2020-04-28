@@ -26,7 +26,7 @@ type t =
 
     If [str] contains a character that can't be represented in [~dst], we
     skip that character and move on. *)
-let recode ~src ~dst input =
+let recode ?context ~src ~dst input =
   (*  Note that we originally used //TRANSLIT and //IGNORE to do this in iconv,
       but iconv is inconsistent between platforms so we do the conversion one
       char at a time. *)
@@ -62,11 +62,15 @@ let recode ~src ~dst input =
     String.sub output ~pos:0 ~len:!enc_i
   with
   | exn ->
-    Logger.info !"Recoding error, falling back to ascii filter %{sexp: exn} %s" exn input;
+    Logger.info
+      ?context
+      !"Recoding error, falling back to ascii filter %{sexp: exn} %s"
+      exn
+      input;
     String.filter input ~f:(fun c -> Char.to_int c < 128)
 ;;
 
-let of_data ~month_offset data =
+let of_data ~context ~month_offset data =
   match data with
   | Dblib.BIT b -> Some (Bool b)
   | INT i | SMALL i | TINY i -> Some (Int i)
@@ -75,7 +79,7 @@ let of_data ~month_offset data =
   | FLOAT f | MONEY f -> Some (Float f)
   | DECIMAL s | NUMERIC s -> Some (Bignum (Bignum.of_string s))
   | BINARY s -> Some (String s)
-  | STRING s -> Some (String (recode ~src:"CP1252" ~dst:"UTF-8" s))
+  | STRING s -> Some (String (recode ~context ~src:"CP1252" ~dst:"UTF-8" s))
   | DATETIME (y, mo, day, hr, min, sec, ms, _zone) ->
     (* FIXME: Timezones don't match in FreeTDS 0.91 and 1.0, so for now we
        just assume everything in UTC. *)

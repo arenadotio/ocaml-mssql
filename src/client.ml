@@ -79,9 +79,10 @@ let format_query query params =
 let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
   sequencer_enqueue t
   @@ fun conn ->
+  let context = Scheduler.current_execution_context () in
   In_thread.run
   @@ fun () ->
-  Logger.debug !"Executing query: %s" formatted_query;
+  Logger.debug ~context !"Executing query: %s" formatted_query;
   Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
       Dblib.cancel conn;
       Dblib.sqlexec conn formatted_query;
@@ -96,7 +97,7 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
             Iter.from_fun (fun () ->
                 try
                   let row = Dblib.nextrow conn in
-                  let row = Row.create_exn ~month_offset ~colnames row in
+                  let row = Row.create_exn ~context ~month_offset ~colnames row in
                   Some row
                 with
                 | Caml.Not_found -> None)
