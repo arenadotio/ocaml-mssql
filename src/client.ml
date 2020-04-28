@@ -119,12 +119,14 @@ let execute_multi_result ?params conn query =
 (* Execute [f iter] for the first result set iterator and throw an exception if there is more than
    one result set *)
 let execute_f' ?params ~f conn query =
+  let context = Scheduler.current_execution_context () in
   execute_multi_result' ?params conn query ~f:(fun result_sets ->
       let result =
         let input =
           IterLabels.head result_sets |> Option.value ~default:IterLabels.empty
         in
-        Thread_safe.block_on_async_exn (fun () -> f input)
+        Thread_safe.block_on_async_exn (fun () ->
+            Async_helper.with_context ~context (fun () -> f input))
       in
       match IterLabels.length result_sets with
       | 0 -> result
