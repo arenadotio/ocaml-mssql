@@ -87,21 +87,27 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
       Dblib.sqlexec conn formatted_query;
       Iter.from_fun (fun () ->
           if Dblib.results conn
-          then (
-            let colnames =
-              Dblib.numcols conn
-              |> List.range 0
-              |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
-            in
-            Iter.from_fun (fun () ->
-                try
-                  let row = Dblib.nextrow conn in
-                  let row = Row.create_exn ~month_offset ~colnames row in
-                  Some row
-                with
-                | Caml.Not_found -> None)
-            |> Option.some)
+          then
+            Dblib.numcols conn
+            |> List.range 0
+            |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
+            |> function
+            | [] ->
+              (* Skip this result set if there are no columns, since this indicates results from things
+                 like inserts with no row data *)
+              Some None
+            | colnames ->
+              Iter.from_fun (fun () ->
+                  try
+                    let row = Dblib.nextrow conn in
+                    let row = Row.create_exn ~month_offset ~colnames row in
+                    Some row
+                  with
+                  | Caml.Not_found -> None)
+              |> Option.some
+              |> Option.some
           else None)
+      |> IterLabels.filter_map ~f:Fn.id
       |> f)
 ;;
 
@@ -175,19 +181,18 @@ let execute_pipe ?params conn query =
 ;;
 
 let execute_unit ?params conn query =
-  let%map results = execute_multi_result ?params conn query in
-  List.iteri results ~f:(fun i ->
-    function
-    | [] -> ()
-    | rows ->
-      failwithf
-        [%here]
-        ~query
-        ?params
-        ~results
-        "Mssql.execute_unit expected no rows but result set %d has %d rows"
-        i
-        (List.length rows))
+  execute ?params conn query
+  >>| function
+  | [] -> ()
+  | rows ->
+    failwithf
+      [%here]
+      ~query
+      ?params
+      ~results:[ rows ]
+      "Mssql.execute_unit expected no rows but result set has %d rows"
+      (List.length rows)
+      ()
 ;;
 
 let execute_single ?params conn query =
