@@ -177,8 +177,14 @@ let test_in_clause_param () =
 let test_multiple_queries_in_execute () =
   Mssql.Test.with_conn (fun db ->
       Monitor.try_with ~here:[%here] @@ fun () -> Mssql.execute db "SELECT 1; SELECT 2")
-  >>| Result.is_error
-  >>| assert_bool "Multiple queries in execute should throw exception but didn't"
+  >>| function
+  | Error e ->
+    Exn.to_string e
+    |> String.is_substring ~substring:"expected one result set but got 2 result sets"
+    |> assert_bool
+         "Multiple queries in execute should throw 'expected one result set' error but \
+          threw different exception"
+  | Ok _ -> assert_failure "Multiple queries in execute should throw exception but didn't"
 ;;
 
 let test_multiple_queries_in_execute_multi_result () =
