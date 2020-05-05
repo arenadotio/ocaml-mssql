@@ -126,7 +126,12 @@ let execute_f' ?params ~f conn query =
         in
         Thread_safe.block_on_async_exn (fun () -> f input)
       in
-      match IterLabels.length result_sets with
+      (* Need to ensure we consume the results or we'll get errors about results pending *)
+      match
+        IterLabels.map result_sets ~f:(fun result_set ->
+            IterLabels.iter result_set ~f:ignore)
+        |> IterLabels.length
+      with
       | 0 -> result
       | n ->
         failwithf
