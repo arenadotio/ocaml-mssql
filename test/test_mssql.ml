@@ -193,6 +193,27 @@ let test_multiple_queries_in_execute_multi_result () =
   >>| ae_sexp [%sexp_of: int option list list] [ [ Some 1 ]; [ Some 2 ] ]
 ;;
 
+let test_not_result_queries_don't_count () =
+  Mssql.Test.with_conn (fun db ->
+      (* This query has 3 expressions but only the SELECT should actually return a result set *)
+      Mssql.execute_single
+        db
+        "CREATE TABLE #test (id int); INSERT INTO #test (id) VALUES (1); SELECT * FROM \
+         #test"
+      >>| Option.map ~f:(fun row -> Mssql.Row.int_exn row "id"))
+  >>| ae_sexp [%sexp_of: int option] (Some 1)
+;;
+
+let test_empty_result_sets_still_count () =
+  Mssql.Test.with_conn (fun db ->
+      (* This query has 2 selects that both return empty sets of rows. We should still get both since
+         they are legitimate result sets. *)
+      Mssql.execute_multi_result
+        db
+        "CREATE TABLE #test (id int); SELECT * FROM #test; SELECT * FROM #test")
+  >>| ae_sexp [%sexp_of: Mssql.Row.t list list] [ []; [] ]
+;;
+
 let test_execute_unit () =
   Mssql.Test.with_conn (fun db ->
       [ "SET XACT_ABORT ON"
@@ -553,18 +574,22 @@ let test_exception_with_multiple_results () =
           Mssql.execute
             db
             {|
-        CREATE TABLE #test (id INT PRIMARY KEY);
-        INSERT INTO #test (id) VALUES (1);
-        INSERT INTO #test (id) VALUES (1); -- primary key violation
-        SELECT * FROM #test;
-      |})
+              CREATE TABLE #test (id INT PRIMARY KEY);
+              INSERT INTO #test (id) VALUES (1);
+              INSERT INTO #test (id) VALUES (1); -- primary key violation
+              SELECT * FROM #test;
+            |})
       >>| (function
             | Error exn ->
               if Exn.to_string_mach exn
                  |> String.is_substring ~substring:"PRIMARY KEY"
                  |> not
               then raise exn
-            | Ok _ -> assert false)
+            | Ok res ->
+              failwithf
+                !"Expected an error but got results: %{sexp:Mssql.Row.t list}"
+                res
+                ())
       >>= fun () ->
       (* if our cleanup code works right, this won't throw an exception *)
       Mssql.execute db "SELECT 1" |> Deferred.ignore_m)
@@ -603,6 +628,8 @@ let () =
       ; "multiple queries in execute", test_multiple_queries_in_execute
       ; ( "multiple queries in execute_multi_result"
         , test_multiple_queries_in_execute_multi_result )
+      ; "test_not_result_queries_don't_count", test_not_result_queries_don't_count
+      ; "test_empty_result_sets_still_count", test_empty_result_sets_still_count
       ; "execute_unit", test_execute_unit
       ; "execute_unit fail", test_execute_unit_fail
       ; "execute_single", test_execute_single
