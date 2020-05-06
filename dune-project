@@ -29,7 +29,7 @@
    (and
     :with-test
     (>= 1.0.1)))
-  async
+  async_unix
   bignum
   ppx_jane
   (iter

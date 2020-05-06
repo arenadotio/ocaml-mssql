@@ -1,6 +1,6 @@
 open Core
-open Poly
-open Async
+open Async_kernel
+open Async_unix
 module Row = Mssql.Row
 
 let test_select_and_convert () =

@@ -1,4 +1,4 @@
-open Async
+open Async_kernel
 
 type t
 

@@ -9,7 +9,7 @@ let preprocess =
 let () = Jbuild_plugin.V1.send @@ {|
 (library
  (public_name mssql)
- (libraries core async freetds iter bignum logs text)
+ (libraries core_kernel async_unix freetds iter bignum logs text)
  (preprocess
   (pps ppx_jane |} ^ preprocess ^ {|)))
 

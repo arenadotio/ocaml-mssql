@@ -11,7 +11,7 @@ bug-reports: "https://github.com/arenadotio/ocaml-mssql/issues"
 depends: [
   "alcotest" {with-test & >= "1.0.1"}
   "alcotest-async" {with-test & >= "1.0.1"}
-  "async"
+  "async_unix"
   "bignum"
   "ppx_jane"
   "iter" {>= "1.2"}
