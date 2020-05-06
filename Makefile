@@ -11,7 +11,6 @@ coverage: clean
 	@BISECT_ENABLE=YES dune runtest
 
 pin:
-	# note that ocaml-freetds is currently vendored instead of pinned
 	opam pin add -yn mssql .
 
 test:
