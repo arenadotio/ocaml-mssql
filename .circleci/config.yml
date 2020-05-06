@@ -34,7 +34,9 @@ jobs:
           command: opam config exec -- make pin
       - run:
           name: Install system dependencies
-          command: opam depext -y mssql
+          command: |
+            opam pin add -y mssql.dev -n .
+            opam depext -y mssql
       - run:
           name: Install OCaml dependencies
           command: opam install --deps-only -y mssql
