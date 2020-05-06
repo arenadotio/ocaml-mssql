@@ -29,14 +29,13 @@
    (and
     :with-test
     (>= 1.0.1)))
-  async
+  async_unix
   bignum
   ppx_jane
   (iter
    (>= 1.2))
   (ocaml
    (>= 4.06.1))
-  ounit
   logs
   (text
    (>= 0.8.0))

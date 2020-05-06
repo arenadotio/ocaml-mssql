@@ -14,7 +14,7 @@ type t =
   | String of string
   | Date of Time.t
   | Array of t list
-[@@deriving sexp]
+[@@deriving compare, sexp]
 
 val of_data : month_offset:int -> Dblib.data -> t option
 val to_string : t option -> string

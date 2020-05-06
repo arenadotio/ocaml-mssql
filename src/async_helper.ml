@@ -1,4 +1,4 @@
-open Async
+open Async_unix
 
 (* Run a function in async without the caller needing to keep track.
    If we're already in Async's main thread, just run it, otherwise

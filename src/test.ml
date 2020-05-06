@@ -12,7 +12,7 @@ let params =
     |> function
     | [ Some host; Some db; Some user; Some password; port ] ->
       host, db, user, password, Option.map ~f:Int.of_string port
-    | _ -> raise (OUnitTest.Skip "MSSQL_TEST_* environment not set"))
+    | _ -> failwith "MSSQL_TEST_* environment not set")
 ;;
 
 let with_conn f =

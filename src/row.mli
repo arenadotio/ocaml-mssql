@@ -4,7 +4,7 @@ open Core
 
 open Freetds
 
-type t [@@deriving sexp_of]
+type t [@@deriving compare, sexp_of]
 
 val create_exn : month_offset:int -> colnames:string list -> Dblib.data list -> t
 

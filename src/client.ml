@@ -1,5 +1,6 @@
-open Core
-open Async
+open Core_kernel
+open Async_kernel
+open Async_unix
 open Freetds
 open Mssql_error
 

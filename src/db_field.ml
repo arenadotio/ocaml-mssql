@@ -11,7 +11,7 @@ type t =
   | String of string
   | Date of Time.t
   | Array of t list
-[@@deriving sexp]
+[@@deriving compare, sexp]
 
 (** [recode ~src ~dst str] decodes [str] from the character set given by [~src],
     i.e. "UTF-8", "CP1252", etc. and then encodes it into the character set
