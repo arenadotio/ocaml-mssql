@@ -1,12 +1,5 @@
-(executables
+(tests
  (names test_mssql)
- (public_names test_mssql.exe)
  (libraries alcotest-async mssql)
  (preprocess
   (pps ppx_jane)))
-
-(alias
- (name runtest)
- (package mssql)
- (action
-  (run ./test_mssql.exe)))
