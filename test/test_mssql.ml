@@ -3,8 +3,28 @@ open Async_kernel
 open Async_unix
 module Row = Mssql.Row
 
+let params =
+  lazy
+    ([ "MSSQL_TEST_SERVER"
+     ; "MSSQL_TEST_DATABASE"
+     ; "MSSQL_TEST_USERNAME"
+     ; "MSSQL_TEST_PASSWORD"
+     ; "MSSQL_TEST_PORT"
+     ]
+    |> List.map ~f:Sys.getenv
+    |> function
+    | [ Some host; Some db; Some user; Some password; port ] ->
+      host, db, user, password, Option.map ~f:Int.of_string port
+    | _ -> failwith "MSSQL_TEST_* environment not set")
+;;
+
+let with_test_conn f =
+  let host, db, user, password, port = Lazy.force params in
+  Mssql.with_conn ~host ~db ~user ~password ?port f
+;;
+
 let test_select_and_convert () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute
         db
         "SELECT 1 AS intcol, 0 AS intcol2, 3 AS notboolint, -1 AS notboolint2, 5.9 AS \
@@ -128,7 +148,7 @@ let test_select_and_convert () =
 ;;
 
 let test_in_clause_param () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_unit db "CREATE TABLE #test (id varchar)"
       >>= fun () ->
       Mssql.execute_unit db "INSERT INTO #test (id) VALUES ('''')"
@@ -142,7 +162,7 @@ let test_in_clause_param () =
 ;;
 
 let test_multiple_queries_in_execute () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Monitor.try_with_or_error ~here:[%here]
       @@ fun () -> Mssql.execute db "SELECT 1; SELECT 2")
   >>| [%test_pred: Mssql.Row.t list Or_error.t]
@@ -158,13 +178,13 @@ let test_multiple_queries_in_execute () =
 ;;
 
 let test_multiple_queries_in_execute_multi_result () =
-  Mssql.Test.with_conn (fun db -> Mssql.execute_multi_result db "SELECT 1; SELECT 2")
+  with_test_conn (fun db -> Mssql.execute_multi_result db "SELECT 1; SELECT 2")
   >>| List.map ~f:(List.map ~f:(fun row -> Row.int row ""))
   >>| [%test_result: int option list list] ~expect:[ [ Some 1 ]; [ Some 2 ] ]
 ;;
 
 let test_not_result_queries_don't_count () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       (* This query has 3 expressions but only the SELECT should actually return a result set *)
       Mssql.execute_single
         db
@@ -175,7 +195,7 @@ let test_not_result_queries_don't_count () =
 ;;
 
 let test_empty_result_sets_still_count () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       (* This query has 2 selects that both return empty sets of rows. We should still get both since
          they are legitimate result sets. *)
       Mssql.execute_multi_result
@@ -185,7 +205,7 @@ let test_empty_result_sets_still_count () =
 ;;
 
 let test_execute_unit () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       [ "SET XACT_ABORT ON"
       ; "BEGIN TRANSACTION"
       ; "CREATE TABLE #test (id int)"
@@ -197,7 +217,7 @@ let test_execute_unit () =
 ;;
 
 let test_execute_unit_fail () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_unit db "CREATE TABLE #test (id int)"
       >>= fun () ->
       Mssql.execute_unit db "INSERT INTO #test (id) VALUES (1)"
@@ -210,7 +230,7 @@ let test_execute_unit_fail () =
 ;;
 
 let test_execute_single () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_unit db "CREATE TABLE #test (id int)"
       >>= fun () ->
       Mssql.execute_unit db "INSERT INTO #test (id) VALUES (1)"
@@ -219,7 +239,7 @@ let test_execute_single () =
 ;;
 
 let test_execute_single_fail () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_unit db "CREATE TABLE #test (id int)"
       >>= fun () ->
       Mssql.execute_unit db "INSERT INTO #test (id) VALUES (1), (1)"
@@ -232,7 +252,7 @@ let test_execute_single_fail () =
 ;;
 
 let test_order () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_map db "SELECT 1 AS a UNION ALL SELECT 2 AS a" ~f:(fun row ->
           Row.int row "a"))
   >>| [%test_result: int option list] ~expect:[ Some 1; Some 2 ]
@@ -240,7 +260,7 @@ let test_order () =
 
 let test_param_parsing () =
   let params = Mssql.Param.[ Some (String "'"); Some (Int 5); None ] in
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute
         ~params
         db
@@ -263,7 +283,7 @@ let test_param_parsing () =
 
 let test_param_out_of_range () =
   let open Mssql.Param in
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       [ ( Some [ Some (String "asdf"); Some (Int 9) ]
         , "SELECT $1 AS a, $2 AS b, $3 AS c"
         , "Query has param $3 but there are only 2 params." )
@@ -348,7 +368,7 @@ let round_trip_tests =
          , fun () ->
              let params = [ Some param ] in
              let query = sprintf "SELECT CAST($1 AS %s)" type_name in
-             Mssql.Test.with_conn (fun db -> Mssql.execute_single ~params db query)
+             with_test_conn (fun db -> Mssql.execute_single ~params db query)
              >>| (fun o -> Option.value_exn o ~message:"Expected one row but got 0")
              >>| f ))
 ;;
@@ -356,7 +376,7 @@ let round_trip_tests =
 let test_execute_many () =
   let expect = List.init 100 ~f:(fun i -> [ Some i ])
   and params = List.init 100 ~f:(fun i -> Mssql.Param.[ Some (Int i) ]) in
-  Mssql.Test.with_conn (fun db -> Mssql.execute_many ~params db "SELECT $1 AS result")
+  with_test_conn (fun db -> Mssql.execute_many ~params db "SELECT $1 AS result")
   >>| List.map ~f:(fun result_set ->
           List.map result_set ~f:(fun row -> Mssql.Row.int row "result"))
   >>| [%test_result: int option list list] ~expect
@@ -369,7 +389,7 @@ let test_concurrent_queries () =
     |> List.map ~f:(sprintf "SELECT $%d")
     |> String.concat ~sep:" UNION ALL "
   in
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       List.range 0 n
       |> Deferred.List.iter ~how:`Parallel ~f:(fun _ ->
              let vals = List.init n ~f:(fun _ -> Random.int 10000) in
@@ -399,7 +419,7 @@ let recoding_tests =
          [ ( "recoding, round-trip " ^ name
            , fun () ->
                let params = [ Some (Mssql.Param.String input) ] in
-               Mssql.Test.with_conn
+               with_test_conn
                @@ fun db ->
                Mssql.execute_single ~params db "SELECT $1"
                >>| Option.map ~f:Row.to_alist
@@ -407,7 +427,7 @@ let recoding_tests =
                      ~expect:(Some [ "", expect_roundtrip ]) )
          ; ( "recoding, sending literal char codes " ^ name
            , fun () ->
-               Mssql.Test.with_conn
+               with_test_conn
                @@ fun db ->
                String.to_list input
                |> List.map ~f:Char.to_int
@@ -423,7 +443,7 @@ let recoding_tests =
 
 let test_rollback () =
   let expect = [ [ "id", "1" ] ] in
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
@@ -437,7 +457,7 @@ let test_rollback () =
 
 let test_auto_rollback () =
   let expect = [ [ "id", "1" ] ] in
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
@@ -454,7 +474,7 @@ let test_auto_rollback () =
 
 let test_commit () =
   let expect = [ [ "id", "1" ]; [ "id", "2" ] ] in
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
@@ -467,7 +487,7 @@ let test_commit () =
 
 let test_auto_commit () =
   let expect = [ [ "id", "1" ]; [ "id", "2" ] ] in
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let%bind () = Mssql.execute_unit db "INSERT INTO #test VALUES (1)" in
@@ -479,7 +499,7 @@ let test_auto_commit () =
 ;;
 
 let test_other_execute_during_transaction () =
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   let%bind () = Mssql.execute_unit db "CREATE TABLE #test (id int)" in
   let ivar = Ivar.create () in
@@ -500,7 +520,7 @@ let test_prevent_transaction_deadlock () =
     "Attempted to use outer DB handle inside of with_transaction. This would have lead \
      to a deadlock."
   in
-  Mssql.Test.with_conn
+  with_test_conn
   @@ fun db ->
   Mssql.with_transaction db (fun _ ->
       Monitor.try_with_or_error ~here:[%here] (fun () ->
@@ -513,7 +533,7 @@ let test_prevent_transaction_deadlock () =
 ;;
 
 let test_exception_thrown_in_callback () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Monitor.try_with ~here:[%here] ~extract_exn:true (fun () -> Mssql.execute db "\x81")
       >>| (function
             | Error exn ->
@@ -529,7 +549,7 @@ let test_exception_with_multiple_results () =
   (* Ensure that our code properly cleans up existing result sets before a new
      query. Before D13534, we sometimes saw:
      "Attempt to initiate a new Adaptive Server operation with results pending" *)
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
           Mssql.execute
             db
@@ -556,7 +576,7 @@ let test_exception_with_multiple_results () =
 ;;
 
 let test_execute_pipe () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Mssql.execute_unit db "CREATE TABLE #test (id int)"
       >>= fun () ->
       let values = List.init 100 ~f:Fn.id in
@@ -574,7 +594,7 @@ let test_execute_pipe () =
 ;;
 
 let test_execute_pipe_error () =
-  Mssql.Test.with_conn (fun db ->
+  with_test_conn (fun db ->
       Monitor.try_with_or_error ~here:[%here]
       @@ fun () -> Mssql.execute_unit db "lkmsdflkmdsf")
   >>| [%test_pred: unit Or_error.t]
