@@ -8,7 +8,7 @@ clean:
 	@dune clean
 
 coverage: clean
-	@BISECT_ENABLE=YES dune runtest
+	@BISECT_ENABLE=yes dune runtest
 
 pin:
 	opam pin add -yn mssql .
