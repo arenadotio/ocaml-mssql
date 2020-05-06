@@ -40,7 +40,8 @@
   logs
   (text
    (>= 0.8.0))
-  freetds
+  (freetds
+   (>= 0.7))
   (bisect_ppx
    (and
     :dev
