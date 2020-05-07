@@ -3,6 +3,19 @@ open Async_kernel
 open Async_unix
 module Row = Mssql.Row
 
+exception Environment_variables_not_set
+
+let () =
+  Caml.Printexc.register_printer (function
+      | Environment_variables_not_set ->
+        Some
+          "Environment_variables_not_set. The following environment variables must be \
+           set to run the Mssql tests: MSSQL_TEST_SERVER, MSSQL_TEST_DATABASE, \
+           MSSQL_TEST_USERNAME, MSSQL_TEST_PASSWORD. Optionally, you can also set \
+           MSSQL_TEST_PORT but it is not required."
+      | _ -> None)
+;;
+
 let params =
   lazy
     ([ "MSSQL_TEST_SERVER"
@@ -15,7 +28,7 @@ let params =
     |> function
     | [ Some host; Some db; Some user; Some password; port ] ->
       host, db, user, password, Option.map ~f:Int.of_string port
-    | _ -> failwith "MSSQL_TEST_* environment not set")
+    | _ -> raise Environment_variables_not_set)
 ;;
 
 let with_test_conn f =
@@ -603,38 +616,42 @@ let test_execute_pipe_error () =
 ;;
 
 let () =
-  Thread_safe.block_on_async_exn
-  @@ fun () ->
-  [ ( "all"
-    , [ "select and convert", test_select_and_convert
-      ; "multiple queries in execute", test_multiple_queries_in_execute
-      ; ( "multiple queries in execute_multi_result"
-        , test_multiple_queries_in_execute_multi_result )
-      ; "test_not_result_queries_don't_count", test_not_result_queries_don't_count
-      ; "test_empty_result_sets_still_count", test_empty_result_sets_still_count
-      ; "execute_unit", test_execute_unit
-      ; "execute_unit fail", test_execute_unit_fail
-      ; "execute_single", test_execute_single
-      ; "execute_single fail", test_execute_single_fail
-      ; "test list order", test_order
-      ; "test params", test_param_parsing
-      ; "test param out of range", test_param_out_of_range
-      ; "test execute many", test_execute_many
-      ; "test concurrent queries", test_concurrent_queries
-      ; "test rollback", test_rollback
-      ; "test auto rollback", test_auto_rollback
-      ; "test commit", test_commit
-      ; "test auto commit", test_auto_commit
-      ; "test other execute during transaction", test_other_execute_during_transaction
-      ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
-      ; "test exception in callback", test_exception_thrown_in_callback
-      ; "test exception with multiple results", test_exception_with_multiple_results
-      ; "test execute_pipe", test_execute_pipe
-      ; "test execute_pipe_error", test_execute_pipe_error
-      ]
-      @ round_trip_tests
-      @ recoding_tests
-      |> List.map ~f:(fun (name, f) -> Alcotest_async.test_case name `Quick f) )
-  ]
-  |> Alcotest_async.run "mssql"
+  try
+    Lazy.force params |> ignore;
+    Thread_safe.block_on_async_exn
+    @@ fun () ->
+    [ ( "all"
+      , [ "select and convert", test_select_and_convert
+        ; "multiple queries in execute", test_multiple_queries_in_execute
+        ; ( "multiple queries in execute_multi_result"
+          , test_multiple_queries_in_execute_multi_result )
+        ; "test_not_result_queries_don't_count", test_not_result_queries_don't_count
+        ; "test_empty_result_sets_still_count", test_empty_result_sets_still_count
+        ; "execute_unit", test_execute_unit
+        ; "execute_unit fail", test_execute_unit_fail
+        ; "execute_single", test_execute_single
+        ; "execute_single fail", test_execute_single_fail
+        ; "test list order", test_order
+        ; "test params", test_param_parsing
+        ; "test param out of range", test_param_out_of_range
+        ; "test execute many", test_execute_many
+        ; "test concurrent queries", test_concurrent_queries
+        ; "test rollback", test_rollback
+        ; "test auto rollback", test_auto_rollback
+        ; "test commit", test_commit
+        ; "test auto commit", test_auto_commit
+        ; "test other execute during transaction", test_other_execute_during_transaction
+        ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+        ; "test exception in callback", test_exception_thrown_in_callback
+        ; "test exception with multiple results", test_exception_with_multiple_results
+        ; "test execute_pipe", test_execute_pipe
+        ; "test execute_pipe_error", test_execute_pipe_error
+        ]
+        @ round_trip_tests
+        @ recoding_tests
+        |> List.map ~f:(fun (name, f) -> Alcotest_async.test_case name `Quick f) )
+    ]
+    |> Alcotest_async.run "mssql"
+  with
+  | Environment_variables_not_set as e -> Caml.Printexc.to_string e |> Caml.print_endline
 ;;
