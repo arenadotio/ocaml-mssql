@@ -12,6 +12,8 @@
 
 (authors "Arena Developers <silver-snakes@arena.io>")
 
+(documentation "https://arenadotio.github.io/ocaml-mssql")
+
 (source
  (github arenadotio/ocaml-mssql))
 
@@ -36,6 +38,7 @@
    (>= 1.2))
   (ocaml
    (>= 4.06.1))
+  (odoc :with-doc)
   logs
   (text
    (>= 0.8.0))
