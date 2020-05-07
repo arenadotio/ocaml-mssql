@@ -12,6 +12,8 @@
 
 (authors "Arena Developers <silver-snakes@arena.io>")
 
+(documentation "https://arenadotio.github.io/ocaml-mssql")
+
 (source
  (github arenadotio/ocaml-mssql))
 

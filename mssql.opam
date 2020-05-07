@@ -7,6 +7,7 @@ maintainer: ["Arena Developers <silver-snakes@arena.io>"]
 authors: ["Arena Developers <silver-snakes@arena.io>"]
 license: "Apache-2.0"
 homepage: "https://github.com/arenadotio/ocaml-mssql"
+doc: "https://arenadotio.github.io/ocaml-mssql"
 bug-reports: "https://github.com/arenadotio/ocaml-mssql/issues"
 depends: [
   "alcotest" {with-test & >= "1.0.1"}
