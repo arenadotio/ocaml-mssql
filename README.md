@@ -66,27 +66,24 @@ open a pull request.
 
 ## Installation
 
-This is not on opam yet, but you can pin the dev repo:
+You can [find mssql on opam](https://opam.ocaml.org/packages/mssql/):
+
+```
+opam install mssql
+```
+
+Or you can pin this repo if you want:
 
 ```
 opam pin add mssql https://github.com/arenadotio/ocaml-mssql.git
 ```
 
-We also recommend pinning `freetds` to our version which releases the global
-runtime lock during IO until
-[this pull request is merged](https://github.com/kennknowles/ocaml-freetds/pull/29):
-
-```
-opam pin add freetds https://github.com/arenadotio/ocaml-freetds.git#release-lock-during-io
-```
-
 ## Usage
 
-See the .mli files for more info (we'll upload generated docs at some point).
+The [tests](test/test_mssql.ml) are full of examples and you can find
+[documentation here](https://arenadotio.github.io/ocaml-mssql/mssql/index.html).
 
-The [tests](test/test_mssql.ml) are full of examples.
-
-### Single connection
+### Example
 
 ```
 Mssql.with_conn ~host ~db ~user ~password (fun db ->
@@ -104,10 +101,3 @@ Mssql.with_conn ~host ~db ~user ~password (fun db ->
     printf "Got row with id=%d value=%d" id value
   | _ -> assert false)
 ```
-
-### Connection pool
-
-```
-Mssql.Pool.with_pool ~host ~db ~user ~password ~max_connections:10 (fun p ->
-  Mssql.Pool.with_conn p (fun db ->
-    (* same as above *)))
