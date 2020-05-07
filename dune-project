@@ -36,6 +36,7 @@
    (>= 1.2))
   (ocaml
    (>= 4.06.1))
+  (odoc :with-doc)
   logs
   (text
    (>= 0.8.0))
