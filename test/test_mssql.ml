@@ -1,6 +1,7 @@
 open Core
 open Async_kernel
 open Async_unix
+open Poly
 module Row = Mssql.Row
 
 exception Environment_variables_not_set
@@ -347,7 +348,7 @@ let round_trip_tests =
     , fun row ->
         Row.int32 row "" |> [%test_result: int32 option] ~expect:(Some Int32.max_value) )
     (* FIXME: If we sent Int64.max, SQL Server returns it as a FLOAT with
-     rounding errors, even though we're explicitly casting to BIGINT. *)
+       rounding errors, even though we're explicitly casting to BIGINT. *)
   ; ( Int64 Int64.(max_value / of_int 1000000)
     , "BIGINT"
     , fun row ->
@@ -363,7 +364,7 @@ let round_trip_tests =
   ]
   @ ([ all_chars
        (* try null, ' and a string in any order to make sure the iterative code
-      is correct *)
+          is correct *)
      ; "\x00a'"
      ; "\x00'asd"
      ; "'\x00asd"
@@ -419,11 +420,11 @@ let recoding_tests =
     , (* round trip strips ∑ because we can't store it, but handles the rest *)
       "ç ß  We’re testing iconv here"
     , (* Inserting the literal char codes, we'll double-decode when we pull it
-       back out of the DB (garbage output is by design here) *)
+         back out of the DB (garbage output is by design here) *)
       "Ã§ ÃŸ âˆ‘ Weâ€™re testing iconv here" )
   ; ( "invalid UTF-8"
     , (* \x81 isn't valid in UTF-8 or CP1252 so both versions fallback to just
-       using the ASCII chars *)
+         using the ASCII chars *)
       "ç ß ∑ We’re testing iconv here \x81"
     , "   Were testing iconv here "
     , "   Were testing iconv here " )
@@ -617,7 +618,7 @@ let test_execute_pipe_error () =
 
 let () =
   try
-    Lazy.force params |> ignore;
+    (Lazy.force params : string * string * string * string * int option) |> ignore;
     Thread_safe.block_on_async_exn
     @@ fun () ->
     [ ( "all"
