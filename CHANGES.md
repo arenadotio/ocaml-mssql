@@ -1,3 +1,22 @@
+## 2.0.3 (2020-05-08)
+
+### Fixed
+
+- Fixed test build when using Core v0.13
+
+## 2.0.2 (2020-05-07)
+
+### Fixed
+
+- Add missing odoc dependency
+- Skip tests if environment variables are not set
+
+## 2.0.1 (2020-05-06)
+
+### Fixed
+
+- Don't build the test folder in release mode (only when running tests)
+
 ## 2.0 (2020-05-06)
 
 ### Added
