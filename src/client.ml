@@ -125,7 +125,6 @@ let execute_multi_result ?params conn query =
 (* Execute [f iter] for the first result set iterator and throw an exception if there is more than
    one result set *)
 let execute_f' ?params ~f conn query =
-  let f = Scheduler.preserve_execution_context' f |> Staged.unstage in
   execute_multi_result' ?params conn query ~f:(fun result_sets ->
       let result =
         let input =
