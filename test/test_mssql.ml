@@ -616,6 +616,20 @@ let test_execute_pipe_error () =
         ~message:"Invalid query should return an error"
 ;;
 
+let test_query_with_quote_comment () =
+  with_test_conn (fun db ->
+      Mssql.execute_single
+        db
+        ~params:Mssql.Param.[ Some (String "test") ]
+        {|
+          -- comment with quote'
+          SELECT $1 AS x
+          -- another comment with quote'
+        |})
+  >>| Option.map ~f:(fun row -> Mssql.Row.str_exn row "x")
+  >>| [%test_result: string option] ~expect:(Some "test")
+;;
+
 let () =
   try
     (Lazy.force params : string * string * string * string * int option) |> ignore;
@@ -647,6 +661,7 @@ let () =
         ; "test exception with multiple results", test_exception_with_multiple_results
         ; "test execute_pipe", test_execute_pipe
         ; "test execute_pipe_error", test_execute_pipe_error
+        ; "query with quote in comment", test_query_with_quote_comment
         ]
         @ round_trip_tests
         @ recoding_tests
