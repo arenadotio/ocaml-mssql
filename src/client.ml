@@ -86,9 +86,12 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
   Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
       Dblib.cancel conn;
       Dblib.sqlexec conn formatted_query;
+      let previous_result_set = ref Iter.empty in
       Iter.from_fun (fun () ->
+          (* Ensure the previous result set was fully consumed *)
+          IterLabels.iter !previous_result_set ~f:ignore;
           if Dblib.results conn
-          then
+          then (
             Dblib.numcols conn
             |> List.range 0
             |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
@@ -98,15 +101,15 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
                  like inserts with no row data *)
               Some None
             | colnames ->
-              Iter.from_fun (fun () ->
-                  try
-                    let row = Dblib.nextrow conn in
-                    let row = Row.create_exn ~month_offset ~colnames row in
-                    Some row
-                  with
-                  | Caml.Not_found -> None)
-              |> Option.some
-              |> Option.some
+              previous_result_set
+                := Iter.from_fun (fun () ->
+                       try
+                         let row = Dblib.nextrow conn in
+                         let row = Row.create_exn ~month_offset ~colnames row in
+                         Some row
+                       with
+                       | Caml.Not_found -> None);
+              !previous_result_set |> Option.some |> Option.some)
           else None)
       |> IterLabels.filter_map ~f:Fn.id
       |> f)
@@ -133,11 +136,7 @@ let execute_f' ?params ~f conn query =
         Thread_safe.block_on_async_exn (fun () -> f input)
       in
       (* Need to ensure we consume the results or we'll get errors about results pending *)
-      match
-        IterLabels.map result_sets ~f:(fun result_set ->
-            IterLabels.iter result_set ~f:ignore)
-        |> IterLabels.length
-      with
+      match IterLabels.length result_sets with
       | 0 -> result
       | n ->
         failwithf
