@@ -84,35 +84,36 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
   In_thread.run
   @@ fun () ->
   Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
-      Dblib.cancel conn;
       Dblib.sqlexec conn formatted_query;
-      let previous_result_set = ref Iter.empty in
-      Iter.from_fun (fun () ->
-          (* Ensure the previous result set was fully consumed *)
-          IterLabels.iter !previous_result_set ~f:ignore;
-          if Dblib.results conn
-          then (
-            Dblib.numcols conn
-            |> List.range 0
-            |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
-            |> function
-            | [] ->
-              (* Skip this result set if there are no columns, since this indicates results from things
-                 like inserts with no row data *)
-              Some None
-            | colnames ->
-              previous_result_set
-                := Iter.from_fun (fun () ->
-                       try
-                         let row = Dblib.nextrow conn in
-                         let row = Row.create_exn ~month_offset ~colnames row in
-                         Some row
-                       with
-                       | Caml.Not_found -> None);
-              !previous_result_set |> Option.some |> Option.some)
-          else None)
-      |> IterLabels.filter_map ~f:Fn.id
-      |> f)
+      let iter =
+        let previous_result_set = ref Iter.empty in
+        Iter.from_fun (fun () ->
+            (* Ensure the previous result set was fully consumed *)
+            IterLabels.iter !previous_result_set ~f:ignore;
+            if Dblib.results conn
+            then (
+              Dblib.numcols conn
+              |> List.range 0
+              |> List.map ~f:(fun i -> Dblib.colname conn (i + 1))
+              |> function
+              | [] ->
+                (* Skip this result set if there are no columns, since this indicates results from things
+                   like inserts with no row data *)
+                Some None
+              | colnames ->
+                previous_result_set
+                  := Iter.from_fun (fun () ->
+                         try
+                           let row = Dblib.nextrow conn in
+                           let row = Row.create_exn ~month_offset ~colnames row in
+                           Some row
+                         with
+                         | Caml.Not_found -> None);
+                !previous_result_set |> Option.some |> Option.some)
+            else None)
+        |> IterLabels.filter_map ~f:Fn.id
+      in
+      Exn.protect ~f:(fun () -> f iter) ~finally:(fun () -> Dblib.cancel conn))
 ;;
 
 let execute_multi_result' ?(params = []) conn query =
