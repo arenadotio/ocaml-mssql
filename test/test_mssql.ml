@@ -546,6 +546,60 @@ let test_prevent_transaction_deadlock () =
         ~message:(sprintf "Expected exception containing %s" expect)
 ;;
 
+let test_execute_map_exception () =
+  with_test_conn (fun db ->
+      Monitor.try_with_or_error (fun () ->
+          Mssql.execute_map
+            db
+            "SELECT 1 AS x UNION SELECT 2 AS x UNION SELECT 'a' AS x UNION SELECT 4 AS x"
+            ~f:(fun row -> Mssql.Row.int_exn row "x"))
+      >>| [%test_pred: int list Or_error.t] (function
+              | Error e ->
+                Error.to_string_hum e
+                |> String.is_substring ~substring:"Conversion failed"
+              | Ok _ -> false)
+      >>= fun () ->
+      (* Connection should still be useable *)
+      Mssql.execute_map db "SELECT 1 AS x" ~f:(fun row -> Mssql.Row.int_exn row "x")
+      >>| [%test_result: int list] ~expect:[ 1 ])
+;;
+
+let test_execute_map_incorrect_number_of_result_sets_exception () =
+  with_test_conn (fun db ->
+      Monitor.try_with_or_error (fun () ->
+          Mssql.execute_map
+            db
+            "SELECT 1 AS x; SELECT 2 AS x; SELECT 3 AS x"
+            ~f:(fun row -> Mssql.Row.int_exn row "x"))
+      >>| [%test_pred: int list Or_error.t] (function
+              | Error e ->
+                Error.to_string_hum e
+                |> String.is_substring ~substring:"expected one result set"
+              | Ok _ -> false)
+      >>= fun () ->
+      (* Connection should still be useable *)
+      Mssql.execute_map db "SELECT 1 AS x" ~f:(fun row -> Mssql.Row.int_exn row "x")
+      >>| [%test_result: int list] ~expect:[ 1 ])
+;;
+
+let test_execute_map_exception_and_incorrect_result_sets () =
+  with_test_conn (fun db ->
+      Monitor.try_with_or_error (fun () ->
+          Mssql.execute_map
+            db
+            "SELECT 'a' AS x UNION SELECT 'b'; SELECT 2 AS x; SELECT 3 AS x"
+            ~f:(fun row -> Mssql.Row.int_exn row "x"))
+      >>| [%test_pred: int list Or_error.t] (function
+              | Error e ->
+                Error.to_string_hum e
+                |> String.is_substring ~substring:"Failed to convert column"
+              | Ok _ -> false)
+      >>= fun () ->
+      (* Connection should still be useable *)
+      Mssql.execute_map db "SELECT 1 AS x" ~f:(fun row -> Mssql.Row.int_exn row "x")
+      >>| [%test_result: int list] ~expect:[ 1 ])
+;;
+
 let test_exception_thrown_in_callback () =
   with_test_conn (fun db ->
       Monitor.try_with ~here:[%here] ~extract_exn:true (fun () -> Mssql.execute db "\x81")
@@ -657,6 +711,11 @@ let () =
         ; "test auto commit", test_auto_commit
         ; "test other execute during transaction", test_other_execute_during_transaction
         ; "test prevent transaction deadlock", test_prevent_transaction_deadlock
+        ; "exception in execute_map", test_execute_map_exception
+        ; ( "execute_map incorrect number of result sets"
+          , test_execute_map_incorrect_number_of_result_sets_exception )
+        ; ( "exception and incorrect number of result sets in execute_map"
+          , test_execute_map_exception_and_incorrect_result_sets )
         ; "test exception in callback", test_exception_thrown_in_callback
         ; "test exception with multiple results", test_exception_with_multiple_results
         ; "test execute_pipe", test_execute_pipe
