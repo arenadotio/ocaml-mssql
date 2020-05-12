@@ -7,13 +7,13 @@ open Mssql_error
 type t =
   { (* dbprocess will be set to None when closed to prevent null pointer crashes *)
     (* The sequencer prevents concurrent use of the DB connection, and also
-     prevent queries during unrelated transactions. *)
+       prevent queries during unrelated transactions. *)
     mutable conn : Dblib.dbprocess Sequencer.t option
         (* ID used to detect deadlocks when attempting to use an outer DB handle
-     inside of with_transaction *)
+           inside of with_transaction *)
   ; transaction_id : Bigint.t
         (* Months are sometimes 0-based and sometimes 1-based. See:
-     http://www.pymssql.org/en/stable/freetds_and_dates.html *)
+           http://www.pymssql.org/en/stable/freetds_and_dates.html *)
   ; month_offset : int
   }
 
@@ -171,14 +171,9 @@ let execute_map ?params ~f conn query =
 let execute_pipe ?params conn query =
   Pipe.create_reader ~close_on_exception:false
   @@ fun writer ->
-  Monitor.protect
-    (fun () ->
-      execute_f' ?params conn query ~f:(fun rows ->
-          IterLabels.fold rows ~init:Deferred.unit ~f:(fun acc row ->
-              acc >>= fun () -> Pipe.write_if_open writer row)))
-    ~finally:(fun () ->
-      Pipe.close writer;
-      Deferred.unit)
+  execute_f' ?params conn query ~f:(fun rows ->
+      IterLabels.fold rows ~init:Deferred.unit ~f:(fun acc row ->
+          acc >>= fun () -> Pipe.write_if_open writer row))
 ;;
 
 let execute_unit ?params conn query =
@@ -271,10 +266,10 @@ let rec connect ?(tries = 5) ~host ~db ~user ~password ?port () =
         ~version:
           Dblib.V70
           (* Clifford gives FreeTDS conversion errors if we choose anything else,
-           eg:
-           ("Error(CONVERSION, \"Some character(s) could not be converted into
-           client's character set.  Unconverted bytes were changed to question
-           marks ('?')\")") *)
+             eg:
+             ("Error(CONVERSION, \"Some character(s) could not be converted into
+             client's character set.  Unconverted bytes were changed to question
+             marks ('?')\")") *)
         ~charset:"CP1252"
         (* You set ports in FreeTDS by appending them to the host name:
            http://www.freetds.org/userguide/portoverride.htm *)
@@ -328,8 +323,8 @@ let create ~host ~db ~user ~password ?port () =
   in
   Monitor.try_with ~here:[%here] (fun () ->
       (* Since FreeTDS won't tell us if it was compiled with 0-based month or
-       1-based months, make a query to check when we first startup and keep
-       track of the offset so we can correct it. *)
+         1-based months, make a query to check when we first startup and keep
+         track of the offset so we can correct it. *)
       let query = "SELECT CAST('2017-02-02' AS DATETIME) AS x" in
       execute_single conn query
       >>= function

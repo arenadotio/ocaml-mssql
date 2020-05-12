@@ -610,8 +610,8 @@ let test_execute_pipe () =
 let test_execute_pipe_error () =
   with_test_conn (fun db ->
       Monitor.try_with_or_error ~here:[%here]
-      @@ fun () -> Mssql.execute_unit db "lkmsdflkmdsf")
-  >>| [%test_pred: unit Or_error.t]
+      @@ fun () -> Mssql.execute_pipe db "lkmsdflkmdsf" |> Pipe.to_list)
+  >>| [%test_pred: Mssql.Row.t list Or_error.t]
         Result.is_error
         ~message:"Invalid query should return an error"
 ;;
