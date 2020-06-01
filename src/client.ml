@@ -84,6 +84,7 @@ let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
   In_thread.run
   @@ fun () ->
   Mssql_error.with_wrap ~query ?params ~formatted_query [%here] (fun () ->
+      Dblib.cancel conn;
       Dblib.sqlexec conn formatted_query;
       let iter =
         let previous_result_set = ref Iter.empty in
