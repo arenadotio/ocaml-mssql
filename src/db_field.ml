@@ -255,6 +255,6 @@ let date ?column =
 let datetime ?column =
   with_error_msg ?column "datetime" ~f:(function
       | Date d -> d
-      | String s -> Time.of_string_abs s
+      | String s -> Time.of_string_gen ~if_no_timezone:(`Use_this_one Time.Zone.utc) s
       | _ -> assert false)
 ;;
