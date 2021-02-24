@@ -1,3 +1,10 @@
+## 2.2.0 (2021-02-24)
+
+### Fixed
+
+- `Row.datetime` and `Row.datetime_exn` now work correctly for the `DATETIME2` type
+- Queries should be slightly less likely to return errors due to previous queries not being cleaned up properly.
+
 ## 2.1.0 (2020-05-12)
 
 ### Fixed
