@@ -356,7 +356,18 @@ let round_trip_tests =
         |> [%test_result: int64 option] ~expect:(Some Int64.(max_value / of_int 1000000))
     )
   ; ( Date (Time.of_string "2017-01-05 11:53:02Z")
+    , "DATE"
+    , fun row ->
+        Row.date row ""
+        |> [%test_result: Date.t option] ~expect:(Some (Date.of_string "2017-01-05")) )
+  ; ( Date (Time.of_string "2017-01-05 11:53:02Z")
     , "DATETIME"
+    , fun row ->
+        Row.datetime row ""
+        |> [%test_result: Time.t option]
+             ~expect:(Some (Time.of_string "2017-01-05 11:53:02Z")) )
+  ; ( Date (Time.of_string "2017-01-05 11:53:02Z")
+    , "DATETIME2"
     , fun row ->
         Row.datetime row ""
         |> [%test_result: Time.t option]
