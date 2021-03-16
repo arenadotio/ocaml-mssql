@@ -46,35 +46,51 @@ let sequencer_enqueue t f =
 let format_query query params =
   let params_formatted = List.map params ~f:Db_field.to_string_escaped |> Array.of_list in
   let lexbuf = Lexing.from_string query in
-  Query_parser.main Query_lexer.token lexbuf
-  |> List.map
-       ~f:
-         (let open Query_parser_types in
-         function
-         | Other s -> s
-         | Param n ->
-           (* $1 is the first param *)
-           let i = n - 1 in
-           if i < 0
-           then
-             failwithf
-               [%here]
-               ~query
-               ~params
-               "Query has param $%d but params should start at $1."
-               n;
-           let len = Array.length params_formatted in
-           if i >= len
-           then
-             failwithf
-               [%here]
-               ~query
-               ~params
-               "Query has param $%d but there are only %d params."
-               n
-               len;
-           params_formatted.(i))
-  |> String.concat ~sep:""
+  let used = List.map params ~f:(Fn.const false) |> Array.of_list in
+  let formatted =
+    Query_parser.main Query_lexer.token lexbuf
+    |> List.map
+         ~f:
+           (let open Query_parser_types in
+           function
+           | Other s -> s
+           | Param n ->
+             (* $1 is the first param *)
+             let i = n - 1 in
+             if i < 0
+             then
+               failwithf
+                 [%here]
+                 ~query
+                 ~params
+                 "Query has param $%d but params should start at $1."
+                 n;
+             let len = Array.length params_formatted in
+             if i >= len
+             then
+               failwithf
+                 [%here]
+                 ~query
+                 ~params
+                 "Query has param $%d but there are only %d params."
+                 n
+                 len;
+             used.(i) <- true;
+             params_formatted.(i))
+    |> String.concat ~sep:""
+  in
+  match
+    Array.filter_mapi used ~f:(fun idx used ->
+        if used then None else Some ("$" ^ Int.to_string (idx + 1)))
+  with
+  | [||] -> formatted
+  | unused ->
+    failwithf
+      [%here]
+      ~query
+      ~params
+      !"Query has unused params %{sexp: string array}. This is probably unintentional."
+      unused
 ;;
 
 let execute' ?params ~query ~formatted_query ({ month_offset; _ } as t) ~f =
