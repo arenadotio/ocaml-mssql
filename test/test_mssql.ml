@@ -305,6 +305,9 @@ let test_param_out_of_range () =
         , "SELECT $1 AS a, $2 AS b, $0 AS c"
         , "Query has param $0 but params should start at $1." )
       ; None, "SELECT $1 AS a, $2 AS b", "Query has param $1 but there are only 0 params."
+      ; ( Some [ Some (String "asdf"); Some (Int 9); Some (Int 9) ]
+        , "SELECT $2 AS a"
+        , "Query has unused params ($1 $3). This is probably unintentional." )
       ]
       |> Deferred.List.iter ~f:(fun (expect_params, expect_query, expect_msg) ->
              Monitor.try_with ~here:[%here] ~extract_exn:true (fun () ->
