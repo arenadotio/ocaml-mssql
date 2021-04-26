@@ -273,19 +273,14 @@ let with_transaction_or_error t f =
       Monitor.try_with_join_or_error ~here:[%here] (fun () -> f t))
 ;;
 
-let rec connect ?(tries = 5) ~host ~db ~user ~password ?port () =
+let rec connect ?(tds_version = Dblib.V72) ?(tries = 5) ~host ~db ~user ~password ?port ()
+  =
   try
     let conn =
       Dblib.connect
         ~user
-        ~password (* We have issues with anything higher than this *)
-        ~version:
-          Dblib.V70
-          (* Clifford gives FreeTDS conversion errors if we choose anything else,
-             eg:
-             ("Error(CONVERSION, \"Some character(s) could not be converted into
-             client's character set.  Unconverted bytes were changed to question
-             marks ('?')\")") *)
+        ~password
+        ~version:tds_version
         ~charset:"CP1252"
         (* You set ports in FreeTDS by appending them to the host name:
            http://www.freetds.org/userguide/portoverride.htm *)
@@ -329,10 +324,10 @@ let close ({ conn; _ } as t) =
     Throttle.enqueue conn @@ fun conn -> In_thread.run (fun () -> Dblib.close conn)
 ;;
 
-let create ~host ~db ~user ~password ?port () =
+let create ?tds_version ~host ~db ~user ~password ?port () =
   let%bind conn =
     let%map conn =
-      In_thread.run (connect ~host ~db ~user ~password ?port)
+      In_thread.run (connect ?tds_version ~host ~db ~user ~password ?port)
       >>| Sequencer.create ~continue_on_error:true
     in
     { conn = Some conn; transaction_id = next_transaction_id (); month_offset = 0 }
