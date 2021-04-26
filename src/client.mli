@@ -10,7 +10,7 @@ type t
     unhandled by ocaml-freetds
     *)
 val with_conn
-  :  tds_version:Freetds.Dblib.version
+  :  ?tds_version:Freetds.Dblib.version
   -> host:string
   -> db:string
   -> user:string

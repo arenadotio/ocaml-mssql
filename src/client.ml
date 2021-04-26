@@ -369,7 +369,7 @@ let create ?tds_version ~host ~db ~user ~password ?port () =
     raise exn
 ;;
 
-let with_conn ~host ~db ~user ~password ?port f =
-  let%bind conn = create ~host ~db ~user ~password ?port () in
+let with_conn ?tds_version ~host ~db ~user ~password ?port f =
+  let%bind conn = create ?tds_version ~host ~db ~user ~password ?port () in
   Monitor.protect (fun () -> f conn) ~finally:(fun () -> close conn)
 ;;
