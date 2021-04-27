@@ -4,9 +4,14 @@ type t
 
 (** Opens a connection, runs the callback, then closes the connection. Don't
     try to use the DB handle outside of the callback, since it will have been
-    closed automatically. *)
+    closed automatically.
+
+    Note: FreeTDS version 7.0 doesn't support encryption, and versions above 7.2 use date types that are
+    unhandled by ocaml-freetds
+    *)
 val with_conn
-  :  host:string
+  :  ?tds_version:Freetds.Dblib.version
+  -> host:string
   -> db:string
   -> user:string
   -> password:string

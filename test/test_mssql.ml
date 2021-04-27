@@ -738,7 +738,11 @@ let () =
         ]
         @ round_trip_tests
         @ recoding_tests
-        |> List.map ~f:(fun (name, f) -> Alcotest_async.test_case name `Quick f) )
+        |> List.map ~f:(fun (name, f) ->
+               (* Note: If you run these tests against a local DB, they're much faster, but this longer timeout
+                  allows us to run them against remote RDS instances with TLS enabled *)
+               Alcotest_async.test_case name ~timeout:(Time.Span.of_int_sec 10) `Quick f)
+      )
     ]
     |> Alcotest_async.run "mssql"
   with
