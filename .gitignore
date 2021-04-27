@@ -1,6 +1,7 @@
 *~
 *.install
 _build
+_opam
 
 .vimrc
 .nvimrc
